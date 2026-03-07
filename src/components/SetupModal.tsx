@@ -35,7 +35,7 @@ export function SetupModal({ open, onOpenChange }: SetupModalProps) {
       {/* Modal */}
       <div
         className="relative animate-slide-in rounded-lg border border-border bg-card shadow-2xl"
-        style={{ width: "95vw", height: "90vh" }}
+        style={{ width: "80vw", height: "85vh" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
