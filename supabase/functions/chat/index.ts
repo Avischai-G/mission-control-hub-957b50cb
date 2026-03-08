@@ -259,7 +259,13 @@ serve(async (req) => {
 
     // For specialist tasks, tell secretary to acknowledge and delegate
     let secretaryMessages: any[];
-    if (category !== "chat") {
+    if (category === "cron") {
+      const cronHint = `\n\nIMPORTANT: The user just scheduled a cron job. Confirm what was scheduled: name="${cronData.name}", schedule="${cronData.schedule}", prompt="${cronData.prompt}". Tell them they can manage it on the Cron Jobs page. Be brief and conversational.`;
+      secretaryMessages = [
+        { role: "system", content: secretarySystem + cronHint },
+        ...messages,
+      ];
+    } else if (category !== "chat") {
       const delegationHint = `\n\nIMPORTANT: The user just asked for a ${category}. Tell them you are delegating this to the ${category} specialist and they can keep chatting. Be brief and conversational. Do NOT try to create the ${category} yourself.`;
       secretaryMessages = [
         { role: "system", content: secretarySystem + delegationHint },
