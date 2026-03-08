@@ -93,17 +93,23 @@ export default function AgentsPage() {
   const otherCore = agents.filter(a => coreAgentIds.includes(a.agent_id) && a.agent_id !== "secretary" && a.agent_id !== "orchestrator");
   const specialists = agents.filter(a => !coreAgentIds.includes(a.agent_id));
 
+  const codeOnlyIds = coreRoleSeeds.filter(s => s.codeOnly).map(s => s.agent_id);
+
   const AgentCard = ({ agent, badge, size = "normal" }: { agent: Agent; badge?: string; size?: "large" | "normal" }) => {
     const icon = coreIcons[agent.agent_id] || "🤖";
     const isLarge = size === "large";
+    const isCodeOnly = codeOnlyIds.includes(agent.agent_id);
     return (
       <div
-        onClick={() => openEdit(agent)}
-        className={`rounded-lg border border-border bg-card hover:border-primary/40 hover:shadow-md transition-all group cursor-pointer ${isLarge ? "p-5" : "p-4"}`}
+        onClick={() => !isCodeOnly && openEdit(agent)}
+        className={`rounded-lg border bg-card transition-all ${isCodeOnly ? "border-dashed border-border/60 opacity-75" : "border-border hover:border-primary/40 hover:shadow-md group cursor-pointer"} ${isLarge ? "p-5" : "p-4"}`}
       >
         <div className="flex items-start justify-between mb-2">
           <span className={isLarge ? "text-3xl" : "text-2xl"}>{icon}</span>
           <div className="flex items-center gap-1.5">
+            {isCodeOnly && (
+              <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-mono text-muted-foreground uppercase">tool</span>
+            )}
             {badge && (
               <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-mono text-primary uppercase">{badge}</span>
             )}
@@ -112,14 +118,19 @@ export default function AgentsPage() {
             </span>
           </div>
         </div>
-        <h3 className={`font-display font-medium text-foreground group-hover:text-primary transition-colors ${isLarge ? "text-base" : "text-sm"}`}>{agent.name}</h3>
+        <h3 className={`font-display font-medium text-foreground ${!isCodeOnly ? "group-hover:text-primary" : ""} transition-colors ${isLarge ? "text-base" : "text-sm"}`}>{agent.name}</h3>
         <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{agent.purpose}</p>
-        {agent.model && (
+        {isCodeOnly && (
+          <div className="mt-2 flex items-center gap-1">
+            <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">no model needed</span>
+          </div>
+        )}
+        {!isCodeOnly && agent.model && (
           <div className="mt-2 flex items-center gap-1">
             <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">{agent.model}</span>
           </div>
         )}
-        {!agent.model && (
+        {!isCodeOnly && !agent.model && (
           <div className="mt-2 flex items-center gap-1">
             <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-mono text-destructive/70">no model set</span>
           </div>
