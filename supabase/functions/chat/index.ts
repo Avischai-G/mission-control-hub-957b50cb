@@ -201,22 +201,42 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: e2.message }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }}
 
-    const orchestratorPrompt = orchestratorInfo.agent?.instructions_md || "Classify this request. Respond ONLY with JSON: {\"category\": \"presentation\"|\"website\"|\"chat\"}";
+    const orchestratorPrompt = orchestratorInfo.agent?.instructions_md || "Classify this request. Respond ONLY with JSON: {\"category\": \"presentation\"|\"website\"|\"cron\"|\"chat\"}";
     const classificationResult = await callLLM(
       orchestratorInfo.provider, orchestratorInfo.modelId, orchestratorInfo.apiKey,
-      [{ role: "system", content: orchestratorPrompt },
+      [{ role: "system", content: orchestratorPrompt + '\n\nAdditional category: "cron" — use when the user wants to schedule, repeat, or automate something on a timer (e.g. "every morning", "every hour", "remind me daily", "run X every 30 minutes"). Extract schedule and prompt. Respond with JSON: {"category":"cron","schedule":"<cron expression>","prompt":"<what to do>","name":"<short name>"}. Schedule presets: every 5 min = "*/5 * * * *", every 30 min = "*/30 * * * *", every hour = "0 * * * *", every 8h = "0 */8 * * *", daily 9am = "0 9 * * *", weekly mon = "0 9 * * 1".' },
        { role: "user", content: userMessage }]
     );
 
     let category = "chat";
-    try { category = JSON.parse(classificationResult.trim()).category || "chat"; }
-    catch { if (classificationResult.toLowerCase().includes("presentation")) category = "presentation";
-            else if (classificationResult.toLowerCase().includes("website")) category = "website"; }
+    let cronData: { schedule?: string; prompt?: string; name?: string } = {};
+    try {
+      const parsed = JSON.parse(classificationResult.trim());
+      category = parsed.category || "chat";
+      if (category === "cron") {
+        cronData = { schedule: parsed.schedule, prompt: parsed.prompt, name: parsed.name };
+      }
+    } catch {
+      if (classificationResult.toLowerCase().includes("presentation")) category = "presentation";
+      else if (classificationResult.toLowerCase().includes("website")) category = "website";
+      else if (classificationResult.toLowerCase().includes("cron")) category = "cron";
+    }
+
+    // ── Handle cron job creation ──
+    if (category === "cron" && cronData.schedule && cronData.prompt) {
+      await supabase.from("cron_jobs").insert({
+        name: cronData.name || userMessage.slice(0, 50),
+        schedule: cronData.schedule,
+        function_name: "cron-execute",
+        is_active: true,
+        config: { prompt: cronData.prompt },
+      });
+    }
 
     // ── Create task record for specialist work ──
     const specialistId = category === "presentation" ? "presentation-agent" : category === "website" ? "website-agent" : "secretary";
     let taskRecord: any = null;
-    if (category !== "chat") {
+    if (category !== "chat" && category !== "cron") {
       const { data: task } = await supabase.from("tasks").insert({
         title: userMessage.slice(0, 100), goal: userMessage, task_type: category,
         status: "received", assigned_agent_id: specialistId,
