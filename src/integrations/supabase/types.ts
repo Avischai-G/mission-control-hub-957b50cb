@@ -293,6 +293,7 @@ export type Database = {
           id: string
           is_set: boolean
           last_verified_at: string | null
+          masked_value: string | null
           provider: string
           updated_at: string
         }
@@ -303,6 +304,7 @@ export type Database = {
           id?: string
           is_set?: boolean
           last_verified_at?: string | null
+          masked_value?: string | null
           provider: string
           updated_at?: string
         }
@@ -313,6 +315,7 @@ export type Database = {
           id?: string
           is_set?: boolean
           last_verified_at?: string | null
+          masked_value?: string | null
           provider?: string
           updated_at?: string
         }

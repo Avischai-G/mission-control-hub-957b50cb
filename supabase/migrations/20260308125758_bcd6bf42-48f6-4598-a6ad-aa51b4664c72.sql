@@ -1,0 +1,1 @@
+ALTER TABLE public.credentials_meta ADD COLUMN IF NOT EXISTS masked_value text;
