@@ -1,4 +1,28 @@
-export type Msg = { role: "user" | "assistant"; content: string };
+export type Msg = {
+  role: "user" | "assistant";
+  content: string;
+  timestamp?: string;
+  meta?: StreamMeta;
+  failed?: boolean;
+};
+
+export type StreamMeta = {
+  agent?: string;
+  model?: string;
+  taskId?: string;
+  category?: string;
+  status?: string;
+  actions?: TaskAction[];
+};
+
+export type TaskAction = {
+  agent: string;
+  title: string;
+  status: "running" | "done" | "failed";
+  output?: string;
+  startedAt?: string;
+  completedAt?: string;
+};
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
@@ -6,10 +30,14 @@ export async function streamChat({
   messages,
   onDelta,
   onDone,
+  onMeta,
+  onError,
 }: {
   messages: Msg[];
   onDelta: (deltaText: string) => void;
   onDone: () => void;
+  onMeta?: (meta: StreamMeta) => void;
+  onError?: (error: string) => void;
 }) {
   const resp = await fetch(CHAT_URL, {
     method: "POST",
@@ -17,7 +45,7 @@ export async function streamChat({
       "Content-Type": "application/json",
       Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
     },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages: messages.map(m => ({ role: m.role, content: m.content })) }),
   });
 
   if (!resp.ok || !resp.body) {
@@ -52,6 +80,13 @@ export async function streamChat({
 
       try {
         const parsed = JSON.parse(jsonStr);
+        
+        // Handle metadata events
+        if (parsed.type === "meta" && onMeta) {
+          onMeta(parsed);
+          continue;
+        }
+        
         const content = parsed.choices?.[0]?.delta?.content as string | undefined;
         if (content) onDelta(content);
       } catch {
@@ -72,6 +107,10 @@ export async function streamChat({
       if (jsonStr === "[DONE]") continue;
       try {
         const parsed = JSON.parse(jsonStr);
+        if (parsed.type === "meta" && onMeta) {
+          onMeta(parsed);
+          continue;
+        }
         const content = parsed.choices?.[0]?.delta?.content as string | undefined;
         if (content) onDelta(content);
       } catch { /* ignore */ }
