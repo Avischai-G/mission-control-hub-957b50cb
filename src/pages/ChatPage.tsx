@@ -3,6 +3,7 @@ import { Send, Loader2 } from "lucide-react";
 import { streamChat, type Msg } from "@/lib/chat-stream";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import ReactMarkdown from "react-markdown";
 
 export default function ChatPage() {
   const [input, setInput] = useState("");
@@ -116,7 +117,19 @@ export default function ChatPage() {
                       ? "bg-primary text-primary-foreground"
                       : "bg-secondary text-secondary-foreground"
                   }`}>
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown
+                        components={{
+                          a: ({ href, children }) => (
+                            <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline hover:text-primary/80">
+                              {children}
+                            </a>
+                          ),
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 </div>
               ))}
