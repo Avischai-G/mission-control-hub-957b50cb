@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { Radio, Loader2 } from "lucide-react";
+import { Radio, Loader2, ExternalLink } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { TaskDetailModal } from "@/components/TaskDetailModal";
 
 type FeedEvent = {
   id: string;
@@ -9,12 +10,15 @@ type FeedEvent = {
   agent_id: string | null;
   severity: string;
   payload: Record<string, unknown>;
+  task_id: string | null;
   created_at: string;
 };
 
 export default function LiveFeedPage() {
   const [events, setEvents] = useState<FeedEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
 
   useEffect(() => {
     const fetch_ = async () => {
@@ -28,7 +32,6 @@ export default function LiveFeedPage() {
     };
     fetch_();
 
-    // Subscribe to realtime events
     const channel = supabase
       .channel("live_feed")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "live_feed_events" }, (payload) => {
@@ -48,12 +51,17 @@ export default function LiveFeedPage() {
     }
   };
 
+  const openTask = (taskId: string) => {
+    setSelectedTaskId(taskId);
+    setTaskModalOpen(true);
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-3">
         <h1 className="font-display text-2xl font-semibold text-foreground">Live Feed</h1>
         <div className="flex items-center gap-1.5 rounded-full bg-success/10 border border-success/20 px-2.5 py-0.5">
-          <div className="h-1.5 w-1.5 rounded-full bg-success animate-pulse-glow" />
+          <div className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
           <span className="font-mono text-[10px] text-success uppercase">Listening</span>
         </div>
       </div>
@@ -74,17 +82,33 @@ export default function LiveFeedPage() {
         ) : (
           <div className="max-h-[600px] overflow-auto divide-y divide-border">
             {events.map(e => (
-              <div key={e.id} className="px-4 py-2 flex items-center gap-3 hover:bg-secondary/30">
-                <span className="text-muted-foreground/50 w-40 shrink-0">{new Date(e.created_at).toLocaleTimeString()}</span>
-                <span className={`w-16 shrink-0 uppercase ${severityColor(e.severity)}`}>{e.severity}</span>
-                <span className="text-primary shrink-0 w-24">{e.source}</span>
-                <span className="text-foreground">{e.event_type}</span>
-                {e.agent_id && <span className="text-muted-foreground ml-auto">@{e.agent_id}</span>}
+              <div key={e.id} className="px-4 py-2.5 hover:bg-secondary/30 space-y-1">
+                <div className="flex items-center gap-3">
+                  <span className="text-muted-foreground/50 w-24 shrink-0">{new Date(e.created_at).toLocaleTimeString()}</span>
+                  <span className={`w-14 shrink-0 uppercase ${severityColor(e.severity)}`}>{e.severity}</span>
+                  <span className="text-primary shrink-0 w-20">{e.source}</span>
+                  <span className="text-foreground flex-1">{e.event_type}</span>
+                  {e.agent_id && <span className="text-muted-foreground">@{e.agent_id}</span>}
+                  {e.task_id && (
+                    <button onClick={() => openTask(e.task_id!)} className="flex items-center gap-1 text-primary hover:text-primary/80 transition-colors" title="View task details">
+                      <ExternalLink className="h-3 w-3" />
+                      <span className="text-[10px]">task</span>
+                    </button>
+                  )}
+                </div>
+                {e.payload && Object.keys(e.payload).length > 0 && (
+                  <details className="pl-[6.5rem]">
+                    <summary className="text-muted-foreground/60 cursor-pointer hover:text-muted-foreground text-[10px]">payload</summary>
+                    <pre className="mt-1 text-[10px] text-muted-foreground/70 whitespace-pre-wrap max-h-40 overflow-auto">{JSON.stringify(e.payload, null, 2)}</pre>
+                  </details>
+                )}
               </div>
             ))}
           </div>
         )}
       </div>
+
+      <TaskDetailModal taskId={selectedTaskId} open={taskModalOpen} onClose={() => setTaskModalOpen(false)} />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { Bot, Shield, Zap, Loader2 } from "lucide-react";
+import { Bot, Shield, Zap, Loader2, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { AgentConfigModal } from "@/components/AgentConfigModal";
 
 const coreRoles = [
   { id: "secretary", name: "Secretary", desc: "Fast conversational model. Only talks to the user.", icon: "💬" },
@@ -20,28 +21,40 @@ type Agent = {
   purpose: string;
   is_active: boolean;
   capability_tags: string[] | null;
+  model: string | null;
+  group_id: string | null;
+  identity_yaml: string | null;
+  instructions_md: string | null;
 };
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [isNew, setIsNew] = useState(false);
 
-  useEffect(() => {
-    const fetch_ = async () => {
-      const { data } = await supabase.from("agents").select("*").order("created_at", { ascending: true });
-      setAgents((data as Agent[]) || []);
-      setLoading(false);
-    };
-    fetch_();
-  }, []);
+  const fetchAgents = async () => {
+    const { data } = await supabase.from("agents").select("*").order("created_at", { ascending: true });
+    setAgents((data as Agent[]) || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchAgents(); }, []);
+
+  const openNew = () => { setSelectedAgent(null); setIsNew(true); setConfigOpen(true); };
+  const openEdit = (a: Agent) => { setSelectedAgent(a); setIsNew(false); setConfigOpen(true); };
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-semibold text-foreground">Agents</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Core runtime roles and specialist agents.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-semibold text-foreground">Agents</h1>
+          <p className="text-sm text-muted-foreground mt-1">Core runtime roles and specialist agents.</p>
+        </div>
+        <button onClick={openNew} className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
+          <Plus className="h-4 w-4" /> New Agent
+        </button>
       </div>
 
       <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground">
@@ -53,7 +66,7 @@ export default function AgentsPage() {
       <h2 className="font-display text-sm font-medium text-muted-foreground uppercase tracking-wider">Core Roles</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         {coreRoles.map((role) => (
-          <div key={role.id} className="rounded-lg border border-border bg-card p-4 hover:border-primary/30 transition-colors group">
+          <div key={role.id} className="rounded-lg border border-border bg-card p-4 hover:border-primary/30 transition-colors group cursor-default">
             <div className="flex items-start justify-between mb-3">
               <span className="text-2xl">{role.icon}</span>
               <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-mono text-muted-foreground uppercase">built-in</span>
@@ -74,7 +87,7 @@ export default function AgentsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {agents.map((a) => (
-            <div key={a.id} className="rounded-lg border border-border bg-card p-4 hover:border-primary/30 transition-colors group">
+            <div key={a.id} onClick={() => openEdit(a)} className="rounded-lg border border-border bg-card p-4 hover:border-primary/30 transition-colors group cursor-pointer">
               <div className="flex items-start justify-between mb-3">
                 <span className="text-2xl">🤖</span>
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-mono uppercase ${a.is_active ? 'bg-success/20 text-success' : 'bg-secondary text-muted-foreground'}`}>
@@ -94,6 +107,8 @@ export default function AgentsPage() {
           ))}
         </div>
       )}
+
+      <AgentConfigModal agent={selectedAgent} isNew={isNew} open={configOpen} onClose={() => setConfigOpen(false)} onSaved={fetchAgents} />
     </div>
   );
 }
