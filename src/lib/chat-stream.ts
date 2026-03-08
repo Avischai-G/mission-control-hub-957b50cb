@@ -8,10 +8,13 @@ export type Msg = {
 
 export type StreamMeta = {
   agent?: string;
+  agentName?: string;
   model?: string;
   taskId?: string;
   category?: string;
   status?: string;
+  url?: string;
+  error?: string;
   actions?: TaskAction[];
 };
 
