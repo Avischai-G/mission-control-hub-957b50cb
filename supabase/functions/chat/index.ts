@@ -124,7 +124,6 @@ function getProviderUrl(provider: string, model: string, apiKey: string, stream 
   return url;
 }
 
-// ── Helper: non-streaming LLM call ──
 async function callLLM(
   provider: string, model: string, apiKey: string, messages: any[], opts?: any
 ): Promise<string> {
@@ -145,33 +144,27 @@ async function callLLM(
   }
 
   const data = await resp.json();
-
-  // Extract text based on provider
   if (provider === "google" || provider === "gemini") {
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
   if (provider === "anthropic") {
     return data.content?.[0]?.text || "";
   }
-  // OpenAI-compatible
   return data.choices?.[0]?.message?.content || "";
 }
 
-// ── Helper: streaming LLM call (returns SSE Response) ──
 function streamLLM(
   provider: string, model: string, apiKey: string, messages: any[]
 ): Promise<Response> {
   const config = PROVIDER_ENDPOINTS[provider];
   if (!config) throw new Error(`No config for provider: ${provider}`);
   
-  // For streaming, we need to set stream=true
-  const streamMessages = messages;
   let body: string;
   let headers: Record<string, string>;
   
   if (provider === "google" || provider === "gemini") {
-    const sys = streamMessages.find((m: any) => m.role === "system")?.content || "";
-    const nonSys = streamMessages.filter((m: any) => m.role !== "system");
+    const sys = messages.find((m: any) => m.role === "system")?.content || "";
+    const nonSys = messages.filter((m: any) => m.role !== "system");
     headers = { "Content-Type": "application/json" };
     body = JSON.stringify({
       system_instruction: { parts: [{ text: sys }] },
@@ -181,13 +174,13 @@ function streamLLM(
       })),
     });
   } else if (provider === "anthropic") {
-    const sys = streamMessages.find((m: any) => m.role === "system")?.content || "";
-    const nonSys = streamMessages.filter((m: any) => m.role !== "system");
+    const sys = messages.find((m: any) => m.role === "system")?.content || "";
+    const nonSys = messages.filter((m: any) => m.role !== "system");
     headers = { "Content-Type": "application/json", "anthropic-version": "2023-06-01" };
     body = JSON.stringify({ model, system: sys, messages: nonSys, max_tokens: 4096, stream: true });
   } else {
     headers = { "Content-Type": "application/json" };
-    body = JSON.stringify({ model, messages: streamMessages, stream: true });
+    body = JSON.stringify({ model, messages, stream: true });
   }
 
   const url = getProviderUrl(provider, model, apiKey, true);
@@ -198,7 +191,6 @@ function streamLLM(
   });
 }
 
-// ── Resolve agent model + provider + API key ──
 async function resolveAgent(supabase: any, agentId: string) {
   const { data: agent } = await supabase.from("agents").select("*").eq("agent_id", agentId).single();
   if (!agent) throw new Error(`Agent "${agentId}" not found`);
@@ -221,7 +213,6 @@ async function resolveAgent(supabase: any, agentId: string) {
   return { agent, modelId, provider, apiKey: credVal.encrypted_value };
 }
 
-// ── Upload HTML to storage and return public URL ──
 async function uploadToStorage(supabase: any, filename: string, html: string, supabaseUrl: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(html);
@@ -233,6 +224,11 @@ async function uploadToStorage(supabase: any, filename: string, html: string, su
   if (error) throw new Error(`Storage upload failed: ${error.message}`);
   
   return `${supabaseUrl}/storage/v1/object/public/generated-files/${filename}`;
+}
+
+// Helper to create SSE meta event
+function metaEvent(data: Record<string, any>): string {
+  return `data: ${JSON.stringify({ type: "meta", ...data })}\n\n`;
 }
 
 serve(async (req) => {
@@ -249,13 +245,11 @@ serve(async (req) => {
     // Save user message
     await supabase.from("chat_messages").insert({ role: "user", content: userMessage, agent_id: "secretary" });
 
-    // ── Step 1: Orchestrator classifies the request ──
+    // ── Step 1: Orchestrator classifies ──
     let orchestratorInfo;
     try {
       orchestratorInfo = await resolveAgent(supabase, "orchestrator");
-    } catch (e: any) {
-      // Fallback: if orchestrator has no model, try secretary
-      console.warn("Orchestrator resolve failed, falling back to secretary:", e.message);
+    } catch {
       try {
         orchestratorInfo = await resolveAgent(supabase, "secretary");
       } catch (e2: any) {
@@ -265,7 +259,6 @@ serve(async (req) => {
       }
     }
 
-    // Ask the orchestrator to classify
     const classificationPrompt = `You are the Main Orchestrator. Classify this user request into one of these categories:
 - "presentation" — if the user wants a presentation/slides created
 - "website" — if the user wants a website or web page created about someone/something
@@ -280,8 +273,6 @@ User request: "${userMessage}"`;
       [{ role: "system", content: "You are a task classifier. Respond with ONLY valid JSON." }, { role: "user", content: classificationPrompt }]
     );
 
-    console.log("Classification result:", classificationResult);
-
     let category = "chat";
     let details = userMessage;
     try {
@@ -289,22 +280,21 @@ User request: "${userMessage}"`;
       category = parsed.category || "chat";
       details = parsed.details || userMessage;
     } catch {
-      // Try to extract category from text
       const lower = classificationResult.toLowerCase();
-      if (lower.includes('"presentation"') || lower.includes("presentation")) category = "presentation";
-      else if (lower.includes('"website"') || lower.includes("website")) category = "website";
+      if (lower.includes("presentation")) category = "presentation";
+      else if (lower.includes("website")) category = "website";
     }
 
     // Create task record
+    const specialistId = category === "presentation" ? "presentation-agent" : category === "website" ? "website-agent" : "secretary";
     const { data: task } = await supabase.from("tasks").insert({
       title: userMessage.slice(0, 100),
       goal: userMessage,
       task_type: category,
       status: "received",
-      assigned_agent_id: category === "presentation" ? "presentation-agent" : category === "website" ? "website-agent" : "secretary",
+      assigned_agent_id: specialistId,
     }).select().single();
 
-    // Log to live feed
     await supabase.from("live_feed_events").insert({
       event_type: "task_created",
       source: "orchestrator",
@@ -312,15 +302,12 @@ User request: "${userMessage}"`;
       payload: { title: userMessage.slice(0, 100), category, details },
     });
 
-    // ── Handle specialist tasks ──
+    // ── Specialist tasks ──
     if (category === "presentation" || category === "website") {
-      const specialistId = category === "presentation" ? "presentation-agent" : "website-agent";
-      
       let specialistInfo;
       try {
         specialistInfo = await resolveAgent(supabase, specialistId);
-      } catch (e: any) {
-        // If specialist has no model, use orchestrator's model but specialist's instructions
+      } catch {
         const { data: specAgent } = await supabase.from("agents").select("*").eq("agent_id", specialistId).single();
         specialistInfo = {
           agent: specAgent,
@@ -330,89 +317,131 @@ User request: "${userMessage}"`;
         };
       }
 
-      // Update task status
       if (task) {
         await supabase.from("tasks").update({ status: "specialist_running" }).eq("id", task.id);
       }
 
-      // Build specialist prompt
-      let systemPrompt = specialistInfo.agent?.instructions_md || "";
-      
-      // For website tasks, fetch knowledge context
-      if (category === "website") {
-        const { data: knowledge } = await supabase
-          .from("knowledge_files")
-          .select("title, content, summary")
-          .eq("is_valid", true)
-          .eq("domain", "personal")
-          .limit(10);
-        
-        if (knowledge?.length) {
-          systemPrompt += "\n\nHere is the knowledge context about the person:\n" +
-            knowledge.map((k: any) => `### ${k.title}\n${k.content}`).join("\n\n");
-        }
-      }
-
-      // Call specialist LLM (non-streaming, we need the full output to save as file)
-      console.log(`Calling specialist ${specialistId} with ${specialistInfo.provider}/${specialistInfo.modelId}`);
-      
-      const specialistMessages = [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage },
-      ];
-
-      const htmlContent = await callLLM(
-        specialistInfo.provider, specialistInfo.modelId, specialistInfo.apiKey,
-        specialistMessages
-      );
-
-      // Clean up: remove markdown fences if present
-      let cleanHtml = htmlContent.trim();
-      if (cleanHtml.startsWith("```html")) cleanHtml = cleanHtml.slice(7);
-      else if (cleanHtml.startsWith("```")) cleanHtml = cleanHtml.slice(3);
-      if (cleanHtml.endsWith("```")) cleanHtml = cleanHtml.slice(0, -3);
-      cleanHtml = cleanHtml.trim();
-
-      // Upload to storage
-      const timestamp = Date.now();
-      const filename = category === "presentation" 
-        ? `presentations/presentation-${timestamp}.html`
-        : `websites/website-${timestamp}.html`;
-
-      const publicUrl = await uploadToStorage(supabase, filename, cleanHtml, supabaseUrl);
-
-      // Update task
-      if (task) {
-        await supabase.from("tasks").update({ 
-          status: "reported_to_secretary",
-          result: { url: publicUrl, type: category }
-        }).eq("id", task.id);
-      }
-
-      // Log completion
-      await supabase.from("live_feed_events").insert({
-        event_type: "task_completed",
-        source: specialistId,
-        task_id: task?.id,
-        payload: { url: publicUrl, type: category },
-      });
-
-      // Build a response message with the link
-      const responseText = category === "presentation"
-        ? `✅ **Presentation created!**\n\nI've generated a 3-slide presentation about the requested topic.\n\n🔗 **[Open Presentation](${publicUrl})**\n\nYou can open the link above to view it in your browser.`
-        : `✅ **Website created!**\n\nI've built a personal website using the knowledge I found about you.\n\n🔗 **[Open Website](${publicUrl})**\n\nYou can open the link above to view it in your browser.`;
-
-      // Save assistant message
-      await supabase.from("chat_messages").insert({
-        role: "assistant", content: responseText, agent_id: specialistId, task_id: task?.id,
-      });
-
-      // Return as a fake SSE stream so the frontend can handle it uniformly
+      // Build a streaming response with meta events
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
-        start(controller) {
-          const chunk = { choices: [{ delta: { content: responseText } }] };
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+        async start(controller) {
+          // Send initial meta
+          controller.enqueue(encoder.encode(metaEvent({
+            agent: specialistId,
+            agentName: specialistInfo.agent?.name || specialistId,
+            model: specialistInfo.modelId,
+            taskId: task?.id,
+            category,
+            status: "classifying",
+            actions: [
+              { agent: "orchestrator", title: "Classifying request", status: "done" },
+            ],
+          })));
+
+          // Send "specialist running" meta
+          controller.enqueue(encoder.encode(metaEvent({
+            status: "specialist_running",
+            actions: [
+              { agent: "orchestrator", title: "Classifying request", status: "done" },
+              { agent: specialistId, title: `Generating ${category}`, status: "running" },
+            ],
+          })));
+
+          try {
+            let systemPrompt = specialistInfo.agent?.instructions_md || "";
+            
+            if (category === "website") {
+              const { data: knowledge } = await supabase
+                .from("knowledge_files")
+                .select("title, content, summary")
+                .eq("is_valid", true)
+                .eq("domain", "personal")
+                .limit(10);
+              
+              if (knowledge?.length) {
+                systemPrompt += "\n\nHere is the knowledge context about the person:\n" +
+                  knowledge.map((k: any) => `### ${k.title}\n${k.content}`).join("\n\n");
+
+                controller.enqueue(encoder.encode(metaEvent({
+                  status: "context_loaded",
+                  actions: [
+                    { agent: "orchestrator", title: "Classifying request", status: "done" },
+                    { agent: "context-agent", title: "Loading knowledge context", status: "done", output: `Found ${knowledge.length} knowledge file(s)` },
+                    { agent: specialistId, title: `Generating ${category}`, status: "running" },
+                  ],
+                })));
+              }
+            }
+
+            const htmlContent = await callLLM(
+              specialistInfo.provider, specialistInfo.modelId, specialistInfo.apiKey,
+              [{ role: "system", content: systemPrompt }, { role: "user", content: userMessage }]
+            );
+
+            let cleanHtml = htmlContent.trim();
+            if (cleanHtml.startsWith("```html")) cleanHtml = cleanHtml.slice(7);
+            else if (cleanHtml.startsWith("```")) cleanHtml = cleanHtml.slice(3);
+            if (cleanHtml.endsWith("```")) cleanHtml = cleanHtml.slice(0, -3);
+            cleanHtml = cleanHtml.trim();
+
+            const timestamp = Date.now();
+            const filename = category === "presentation" 
+              ? `presentations/presentation-${timestamp}.html`
+              : `websites/website-${timestamp}.html`;
+
+            const publicUrl = await uploadToStorage(supabase, filename, cleanHtml, supabaseUrl);
+
+            if (task) {
+              await supabase.from("tasks").update({ 
+                status: "reported_to_secretary",
+                result: { url: publicUrl, type: category }
+              }).eq("id", task.id);
+            }
+
+            await supabase.from("live_feed_events").insert({
+              event_type: "task_completed",
+              source: specialistId,
+              task_id: task?.id,
+              payload: { url: publicUrl, type: category },
+            });
+
+            // Send completion meta
+            controller.enqueue(encoder.encode(metaEvent({
+              status: "done",
+              url: publicUrl,
+              actions: [
+                { agent: "orchestrator", title: "Classifying request", status: "done" },
+                ...(category === "website" ? [{ agent: "context-agent", title: "Loading knowledge context", status: "done" }] : []),
+                { agent: specialistId, title: `Generating ${category}`, status: "done" },
+                { agent: "storage", title: "Uploading file", status: "done", output: publicUrl },
+              ],
+            })));
+
+            const responseText = category === "presentation"
+              ? `✅ **Presentation created!**\n\nI've generated a presentation about the requested topic.\n\n🔗 **[Open Presentation](${publicUrl})**`
+              : `✅ **Website created!**\n\nI've built a personal website using your knowledge profile.\n\n🔗 **[Open Website](${publicUrl})**`;
+
+            await supabase.from("chat_messages").insert({
+              role: "assistant", content: responseText, agent_id: specialistId, task_id: task?.id,
+            });
+
+            const chunk = { choices: [{ delta: { content: responseText } }] };
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+          } catch (err: any) {
+            // Send failure meta
+            controller.enqueue(encoder.encode(metaEvent({
+              status: "failed",
+              error: err.message,
+              actions: [
+                { agent: "orchestrator", title: "Classifying request", status: "done" },
+                { agent: specialistId, title: `Generating ${category}`, status: "failed" },
+              ],
+            })));
+            
+            const errorChunk = { choices: [{ delta: { content: `❌ **Task failed:** ${err.message}` } }] };
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(errorChunk)}\n\n`));
+          }
+
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         },
@@ -433,7 +462,6 @@ User request: "${userMessage}"`;
       });
     }
 
-    // Get knowledge context
     const { data: knowledgeIndex } = await supabase
       .from("knowledge_files")
       .select("file_id, title, summary, domain")
@@ -445,7 +473,7 @@ User request: "${userMessage}"`;
       : "";
 
     const systemPrompt = secretaryInfo.agent?.instructions_md 
-      || `You are Secretary. A fast conversational assistant. You talk to the user, report task status, and return results.`;
+      || `You are Secretary. A fast conversational assistant.`;
 
     const fullSystemPrompt = systemPrompt + knowledgeContext;
 
@@ -454,7 +482,6 @@ User request: "${userMessage}"`;
       ...messages,
     ];
 
-    // Stream response
     const response = await streamLLM(
       secretaryInfo.provider, secretaryInfo.modelId, secretaryInfo.apiKey, streamMessages
     );
@@ -475,55 +502,68 @@ User request: "${userMessage}"`;
       throw new Error(`Provider error: ${response.status} - ${t.slice(0, 200)}`);
     }
 
-    // Transform non-OpenAI streams to OpenAI format
+    // For chat, prepend a meta event with agent info, then pipe the stream
     const provider = secretaryInfo.provider;
-    if (provider === "anthropic" || provider === "google" || provider === "gemini") {
-      const reader = response.body!.getReader();
-      const encoder = new TextEncoder();
-      const decoder = new TextDecoder();
+    const reader = response.body!.getReader();
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
 
-      const stream = new ReadableStream({
-        async start(controller) {
-          let buffer = "";
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-              controller.close();
-              break;
-            }
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
+    const chatStream = new ReadableStream({
+      async start(controller) {
+        // Send meta event first
+        controller.enqueue(encoder.encode(metaEvent({
+          agent: "secretary",
+          agentName: secretaryInfo.agent?.name || "Secretary",
+          model: secretaryInfo.modelId,
+          taskId: task?.id,
+          category: "chat",
+          status: "streaming",
+        })));
 
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              const jsonStr = line.slice(6).trim();
-              if (!jsonStr) continue;
-              try {
-                const parsed = JSON.parse(jsonStr);
-                let text = "";
-                if (provider === "anthropic" && parsed.type === "content_block_delta") {
-                  text = parsed.delta?.text || "";
-                } else if ((provider === "google" || provider === "gemini")) {
-                  text = parsed.candidates?.[0]?.content?.parts?.[0]?.text || "";
-                }
-                if (text) {
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`));
-                }
-              } catch { /* skip */ }
-            }
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+            break;
           }
-        },
-      });
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
 
-      return new Response(stream, {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
-      });
-    }
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr || jsonStr === "[DONE]") {
+              if (jsonStr === "[DONE]") {
+                controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                controller.close();
+                return;
+              }
+              continue;
+            }
+            try {
+              const parsed = JSON.parse(jsonStr);
+              let text = "";
+              if (provider === "anthropic" && parsed.type === "content_block_delta") {
+                text = parsed.delta?.text || "";
+              } else if (provider === "google" || provider === "gemini") {
+                text = parsed.candidates?.[0]?.content?.parts?.[0]?.text || "";
+              } else {
+                // OpenAI-compatible
+                text = parsed.choices?.[0]?.delta?.content || "";
+              }
+              if (text) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`));
+              }
+            } catch { /* skip */ }
+          }
+        }
+      },
+    });
 
-    // OpenAI-compatible: pass through
-    return new Response(response.body, {
+    return new Response(chatStream, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
 
