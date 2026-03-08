@@ -5,13 +5,13 @@ import { AgentConfigModal } from "@/components/AgentConfigModal";
 import { useToast } from "@/hooks/use-toast";
 
 const coreRoleSeeds = [
-  { agent_id: "secretary", name: "Secretary", role: "secretary", purpose: "Fast conversational model. Only talks to the user.", icon: "💬" },
-  { agent_id: "orchestrator", name: "Main Orchestrator", role: "orchestrator", purpose: "Plans tasks, owns checklists, dispatches agents.", icon: "🎯" },
-  { agent_id: "memory-retriever", name: "Recent Memory Retriever", role: "memory-retriever", purpose: "Code-only. Embeds, searches 72h vector memory.", icon: "🔍" },
-  { agent_id: "knowledge-selector", name: "Knowledge Selector", role: "knowledge-selector", purpose: "Cheap model. Picks relevant long-term files.", icon: "📚" },
-  { agent_id: "knowledge-loader", name: "Knowledge Loader", role: "knowledge-loader", purpose: "Code-only. Opens, validates, trims files.", icon: "📦" },
-  { agent_id: "agent-picker", name: "Agent Picker", role: "agent-picker", purpose: "Code-first. Filters by type, capability, policy.", icon: "🎲" },
-  { agent_id: "privileged-writer", name: "Privileged Writer", role: "privileged-writer", purpose: "Only core that performs protected writes.", icon: "🔐" },
+  { agent_id: "secretary", name: "Secretary", role: "secretary", purpose: "Fast conversational model. Only talks to the user.", icon: "💬", codeOnly: false },
+  { agent_id: "orchestrator", name: "Main Orchestrator", role: "orchestrator", purpose: "Plans tasks, owns checklists, dispatches agents.", icon: "🎯", codeOnly: false },
+  { agent_id: "memory-retriever", name: "Recent Memory Retriever", role: "memory-retriever", purpose: "Code-only. Embeds, searches 72h vector memory.", icon: "🔍", codeOnly: true },
+  { agent_id: "knowledge-selector", name: "Knowledge Selector", role: "knowledge-selector", purpose: "Cheap model. Picks relevant long-term files.", icon: "📚", codeOnly: false },
+  { agent_id: "knowledge-loader", name: "Knowledge Loader", role: "knowledge-loader", purpose: "Code-only. Opens, validates, trims files.", icon: "📦", codeOnly: true },
+  { agent_id: "agent-picker", name: "Agent Picker", role: "agent-picker", purpose: "Code-first. Filters by type, capability, policy.", icon: "🎲", codeOnly: true },
+  { agent_id: "privileged-writer", name: "Privileged Writer", role: "privileged-writer", purpose: "Only core that performs protected writes.", icon: "🔐", codeOnly: false },
 ];
 
 const coreIcons: Record<string, string> = {
