@@ -166,6 +166,10 @@ export function AgentConfigModal({ agent, isNew, open, onClose, onSaved }: Agent
       toast({ title: "Missing required fields", description: "agent_id, name, role, and purpose are required.", variant: "destructive" });
       return;
     }
+    if (!form.model) {
+      toast({ title: "Model required", description: "You must select a model before saving an agent.", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     try {
       if (isNew) {
@@ -348,9 +352,9 @@ export function AgentConfigModal({ agent, isNew, open, onClose, onSaved }: Agent
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className={labelCls}>Model (optional)</label>
-                      <select value={form.model || ""} onChange={e => setForm({ ...form, model: e.target.value || null })} className={inputCls}>
-                        <option value="">— Default —</option>
+                      <label className={labelCls}>Model *</label>
+                      <select value={form.model || ""} onChange={e => setForm({ ...form, model: e.target.value || null })} className={`${inputCls} ${!form.model ? "border-destructive/50" : ""}`}>
+                        <option value="">— Select a model —</option>
                         {models.map(m => <option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}
                       </select>
                     </div>
