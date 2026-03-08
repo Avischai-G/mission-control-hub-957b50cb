@@ -211,7 +211,7 @@ export function AgentConfigModal({ agent, isNew, open, onClose, onSaved }: Agent
         max_runtime_ms: policy.max_runtime_ms,
         max_tool_calls_per_task: policy.max_tool_calls_per_task,
         policy_yaml: policy.policy_yaml,
-        tool_argument_schema: policy.tool_argument_schema,
+        tool_argument_schema: policy.tool_argument_schema as unknown as Record<string, never>,
       };
 
       if (policyId) {
