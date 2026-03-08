@@ -28,6 +28,7 @@ export function ModelsTab() {
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ model_id: "", display_name: "", model_type: "chat", credential_id: "" });
+  const [typeOpen, setTypeOpen] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [verified, setVerified] = useState<boolean | null>(null);
   const [verifyError, setVerifyError] = useState("");
