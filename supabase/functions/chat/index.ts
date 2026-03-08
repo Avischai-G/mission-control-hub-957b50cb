@@ -201,9 +201,10 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: e2.message }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }}
 
+    const orchestratorPrompt = orchestratorInfo.agent?.instructions_md || "Classify this request. Respond ONLY with JSON: {\"category\": \"presentation\"|\"website\"|\"chat\"}";
     const classificationResult = await callLLM(
       orchestratorInfo.provider, orchestratorInfo.modelId, orchestratorInfo.apiKey,
-      [{ role: "system", content: "Classify this request. Respond ONLY with JSON: {\"category\": \"presentation\"|\"website\"|\"chat\"}" },
+      [{ role: "system", content: orchestratorPrompt },
        { role: "user", content: userMessage }]
     );
 
