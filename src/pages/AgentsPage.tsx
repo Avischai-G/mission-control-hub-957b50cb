@@ -12,6 +12,7 @@ const coreRoleSeeds = [
   { agent_id: "knowledge-loader", name: "Knowledge Loader", role: "knowledge-loader", purpose: "Code-only. Opens, validates, trims files.", icon: "📦", codeOnly: true },
   { agent_id: "agent-picker", name: "Agent Picker", role: "agent-picker", purpose: "Code-first. Filters by type, capability, policy.", icon: "🎲", codeOnly: true },
   { agent_id: "privileged-writer", name: "Privileged Writer", role: "privileged-writer", purpose: "Only core that performs protected writes.", icon: "🔐", codeOnly: false },
+  { agent_id: "agent-maker", name: "Agent Maker", role: "agent-maker", purpose: "Creates narrow specialist agents when routing gaps are found.", icon: "🏭", codeOnly: false },
 ];
 
 const coreIcons: Record<string, string> = {
@@ -22,6 +23,7 @@ const coreIcons: Record<string, string> = {
   "knowledge-loader": "📦",
   "agent-picker": "🎲",
   "privileged-writer": "🔐",
+  "agent-maker": "🏭",
 };
 
 const coreAgentIds = coreRoleSeeds.map(r => r.agent_id);
