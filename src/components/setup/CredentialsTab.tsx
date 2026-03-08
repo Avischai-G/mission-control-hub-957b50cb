@@ -191,11 +191,11 @@ export function CredentialsTab() {
                 </div>
                 <div className="flex items-center gap-2">
                   {c.is_set ? (
-                    <span className="flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-mono bg-emerald-500/20 text-emerald-400">
+                    <span className="flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-mono bg-primary/20 text-primary">
                       <CheckCircle className="h-3 w-3" /> Set
                     </span>
                   ) : (
-                    <span className="flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-mono bg-amber-500/20 text-amber-400">
+                    <span className="flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-mono bg-muted text-muted-foreground">
                       <XCircle className="h-3 w-3" /> Not set
                     </span>
                   )}
