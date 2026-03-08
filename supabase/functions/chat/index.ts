@@ -6,17 +6,189 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// Provider routing config
+const PROVIDER_ENDPOINTS: Record<string, { url: string; formatRequest: (model: string, messages: any[], systemPrompt: string) => { body: string; headers: Record<string, string> } }> = {
+  openai: {
+    url: "https://api.openai.com/v1/chat/completions",
+    formatRequest: (model, messages, systemPrompt) => ({
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
+        stream: true,
+      }),
+    }),
+  },
+  anthropic: {
+    url: "https://api.anthropic.com/v1/messages",
+    formatRequest: (model, messages, systemPrompt) => ({
+      headers: { "Content-Type": "application/json", "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model,
+        system: systemPrompt,
+        messages,
+        max_tokens: 4096,
+        stream: true,
+      }),
+    }),
+  },
+  google: {
+    url: "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse",
+    formatRequest: (model, messages, systemPrompt) => ({
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: messages.map((m: any) => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }],
+        })),
+      }),
+    }),
+  },
+  gemini: {
+    url: "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse",
+    formatRequest: (model, messages, systemPrompt) => ({
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: messages.map((m: any) => ({
+          role: m.role === "assistant" ? "model" : "user",
+          parts: [{ text: m.content }],
+        })),
+      }),
+    }),
+  },
+  mistral: {
+    url: "https://api.mistral.ai/v1/chat/completions",
+    formatRequest: (model, messages, systemPrompt) => ({
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
+        stream: true,
+      }),
+    }),
+  },
+  groq: {
+    url: "https://api.groq.com/openai/v1/chat/completions",
+    formatRequest: (model, messages, systemPrompt) => ({
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
+        stream: true,
+      }),
+    }),
+  },
+  deepseek: {
+    url: "https://api.deepseek.com/v1/chat/completions",
+    formatRequest: (model, messages, systemPrompt) => ({
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
+        stream: true,
+      }),
+    }),
+  },
+  together: {
+    url: "https://api.together.xyz/v1/chat/completions",
+    formatRequest: (model, messages, systemPrompt) => ({
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
+        stream: true,
+      }),
+    }),
+  },
+  fireworks: {
+    url: "https://api.fireworks.ai/inference/v1/chat/completions",
+    formatRequest: (model, messages, systemPrompt) => ({
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
+        stream: true,
+      }),
+    }),
+  },
+  perplexity: {
+    url: "https://api.perplexity.ai/chat/completions",
+    formatRequest: (model, messages, systemPrompt) => ({
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
+        stream: true,
+      }),
+    }),
+  },
+};
+
+function getAuthHeader(provider: string, apiKey: string): Record<string, string> {
+  if (provider === "anthropic") return { "x-api-key": apiKey };
+  if (provider === "google" || provider === "gemini") return {}; // key goes in URL
+  return { Authorization: `Bearer ${apiKey}` };
+}
+
+function getProviderUrl(provider: string, model: string, apiKey: string): string {
+  const config = PROVIDER_ENDPOINTS[provider];
+  if (!config) throw new Error(`Unsupported provider: ${provider}`);
+  let url = config.url.replace("{model}", model);
+  if (provider === "google" || provider === "gemini") url += `&key=${apiKey}`;
+  return url;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { messages } = await req.json();
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    const { messages, agent_id } = await req.json();
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Determine which agent/model to use
+    let modelId = "gpt-4o";
+    let provider = "openai";
+    let agentRecord: any = null;
+
+    if (agent_id) {
+      const { data: agent } = await supabase.from("agents").select("*").eq("agent_id", agent_id).single();
+      agentRecord = agent;
+      if (agent?.model) modelId = agent.model;
+    }
+
+    // Look up model in registry to get provider
+    const { data: modelReg } = await supabase.from("model_registry")
+      .select("*").eq("model_id", modelId).eq("is_active", true).single();
+
+    if (modelReg) {
+      provider = modelReg.provider.toLowerCase();
+    }
+
+    // Get API key for this provider from credential_values
+    const { data: credMeta } = await supabase.from("credentials_meta")
+      .select("id").eq("provider", provider).eq("is_set", true).limit(1).single();
+
+    if (!credMeta) {
+      return new Response(JSON.stringify({ error: `No API key configured for provider "${provider}". Add one in Setup → Credentials.` }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { data: credVal } = await supabase.from("credential_values")
+      .select("encrypted_value").eq("credential_meta_id", credMeta.id).single();
+
+    if (!credVal) {
+      return new Response(JSON.stringify({ error: `API key for "${provider}" is not set. Configure it in Setup → Credentials.` }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const apiKey = credVal.encrypted_value;
 
     // Get the latest user message
     const userMessage = messages[messages.length - 1];
@@ -27,6 +199,7 @@ serve(async (req) => {
       goal: userMessage.content,
       task_type: "chat",
       status: "received",
+      assigned_agent_id: agent_id || "secretary",
     }).select().single();
 
     // Save user message
@@ -39,9 +212,9 @@ serve(async (req) => {
     // Log to live feed
     await supabase.from("live_feed_events").insert({
       event_type: "task_created",
-      source: "secretary",
+      source: agent_id || "secretary",
       task_id: task?.id,
-      payload: { title: userMessage.content.slice(0, 100) },
+      payload: { title: userMessage.content.slice(0, 100), model: modelId, provider },
     });
 
     // Update task to classified
@@ -50,114 +223,188 @@ serve(async (req) => {
       await supabase.from("task_checklists").insert([
         { task_id: task.id, step: "received", status: "done", completed_at: new Date().toISOString() },
         { task_id: task.id, step: "classified", status: "done", completed_at: new Date().toISOString() },
-        { task_id: task.id, step: "recent_context_ready", status: "pending" },
-        { task_id: task.id, step: "long_term_context_ready", status: "pending" },
-        { task_id: task.id, step: "agent_selected", status: "pending" },
+        { task_id: task.id, step: "model_resolved", status: "done", completed_at: new Date().toISOString(), details: `${provider}/${modelId}` },
         { task_id: task.id, step: "specialist_running", status: "pending" },
         { task_id: task.id, step: "reported_to_secretary", status: "pending" },
       ]);
     }
 
-    // Retrieve recent context from knowledge files
+    // Retrieve knowledge context
     const { data: knowledgeIndex } = await supabase
       .from("knowledge_files")
       .select("file_id, title, summary, domain")
       .eq("is_valid", true)
       .limit(20);
 
-    // Build context from knowledge
     const knowledgeContext = knowledgeIndex?.length
       ? `\nRelevant knowledge:\n${knowledgeIndex.map(k => `- [${k.file_id}] ${k.title}: ${k.summary || 'No summary'}`).join('\n')}`
       : "";
+
+    // Build system prompt
+    const agentInstructions = agentRecord?.instructions_md || "";
+    const systemPrompt = agentRecord
+      ? `You are ${agentRecord.name}.\nRole: ${agentRecord.role}\nPurpose: ${agentRecord.purpose}\n\n${agentInstructions}\n${knowledgeContext}`
+      : `You are Secretary.\n\nRole:\nFast conversational assistant. You talk to the user, report task status, and return results.\n${knowledgeContext}`;
 
     // Update checklist
     if (task) {
       await supabase.from("task_checklists")
         .update({ status: "done", completed_at: new Date().toISOString() })
         .eq("task_id", task.id)
-        .in("step", ["recent_context_ready", "long_term_context_ready", "agent_selected", "specialist_running"]);
+        .eq("step", "specialist_running");
       await supabase.from("tasks").update({ status: "specialist_running" }).eq("id", task.id);
     }
 
-    // Call AI via Lovable AI Gateway
-    const systemPrompt = `You are Secretary.
+    // Route to correct provider
+    const providerConfig = PROVIDER_ENDPOINTS[provider];
+    if (!providerConfig) {
+      throw new Error(`No endpoint config for provider: ${provider}`);
+    }
 
-Role:
-Fast conversational assistant. You talk to the user, report task status, and return results. You never execute tasks yourself.
+    const { body: requestBody, headers: providerHeaders } = providerConfig.formatRequest(modelId, messages, systemPrompt);
+    const url = getProviderUrl(provider, modelId, apiKey);
 
-You are not responsible for:
-- Executing tasks or tool calls
-- Accessing secrets or credentials
-- Modifying files or databases directly
-
-Input:
-You receive user messages in a chat context.${knowledgeContext}
-
-Output:
-Natural conversational responses. Be concise, helpful, and honest about what you know and don't know.
-
-Method:
-1. Understand the user's request.
-2. Provide the best answer from available context.
-3. If you cannot answer, say so clearly.
-
-Self-check:
-- Response is relevant to the question.
-- No fabricated facts.
-- No claims about capabilities you don't have.
-
-Failure statuses:
-- insufficient_context
-- cannot_execute
-- failed_check`;
-
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
+        ...providerHeaders,
+        ...getAuthHeader(provider, apiKey),
       },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...messages,
-        ],
-        stream: true,
-      }),
+      body: requestBody,
     });
 
     if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limited. Please try again later." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Payment required. Please add credits." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
       const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
-      throw new Error(`AI gateway error: ${response.status}`);
+      console.error(`Provider ${provider} error:`, response.status, t);
+
+      if (response.status === 429) {
+        return new Response(JSON.stringify({ error: "Rate limited by provider. Please try again later." }), {
+          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (response.status === 401 || response.status === 403) {
+        return new Response(JSON.stringify({ error: `Authentication failed for ${provider}. Check your API key in Setup → Credentials.` }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`Provider ${provider} error: ${response.status} - ${t.slice(0, 200)}`);
     }
 
-    // Update task status
+    // For Anthropic, we need to transform the SSE stream to OpenAI format
+    if (provider === "anthropic") {
+      const reader = response.body!.getReader();
+      const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
+
+      const stream = new ReadableStream({
+        async start(controller) {
+          let buffer = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+              break;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const jsonStr = line.slice(6).trim();
+              if (!jsonStr) continue;
+              try {
+                const parsed = JSON.parse(jsonStr);
+                if (parsed.type === "content_block_delta" && parsed.delta?.text) {
+                  const openaiFormat = {
+                    choices: [{ delta: { content: parsed.delta.text } }],
+                  };
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(openaiFormat)}\n\n`));
+                }
+              } catch { /* skip */ }
+            }
+          }
+        },
+      });
+
+      // Update task completion
+      if (task) {
+        await supabase.from("task_checklists")
+          .update({ status: "done", completed_at: new Date().toISOString() })
+          .eq("task_id", task.id).eq("step", "reported_to_secretary");
+        await supabase.from("tasks").update({ status: "reported_to_secretary" }).eq("id", task.id);
+      }
+
+      return new Response(stream, {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      });
+    }
+
+    // For Google/Gemini, transform SSE stream to OpenAI format
+    if (provider === "google" || provider === "gemini") {
+      const reader = response.body!.getReader();
+      const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
+
+      const stream = new ReadableStream({
+        async start(controller) {
+          let buffer = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+              break;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const jsonStr = line.slice(6).trim();
+              if (!jsonStr) continue;
+              try {
+                const parsed = JSON.parse(jsonStr);
+                const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (text) {
+                  const openaiFormat = {
+                    choices: [{ delta: { content: text } }],
+                  };
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(openaiFormat)}\n\n`));
+                }
+              } catch { /* skip */ }
+            }
+          }
+        },
+      });
+
+      if (task) {
+        await supabase.from("task_checklists")
+          .update({ status: "done", completed_at: new Date().toISOString() })
+          .eq("task_id", task.id).eq("step", "reported_to_secretary");
+        await supabase.from("tasks").update({ status: "reported_to_secretary" }).eq("id", task.id);
+      }
+
+      return new Response(stream, {
+        headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+      });
+    }
+
+    // OpenAI-compatible providers (openai, mistral, groq, deepseek, together, fireworks, perplexity)
+    // Just pass through the SSE stream directly
     if (task) {
       await supabase.from("task_checklists")
         .update({ status: "done", completed_at: new Date().toISOString() })
-        .eq("task_id", task.id)
-        .eq("step", "reported_to_secretary");
+        .eq("task_id", task.id).eq("step", "reported_to_secretary");
       await supabase.from("tasks").update({ status: "reported_to_secretary" }).eq("id", task.id);
 
       await supabase.from("live_feed_events").insert({
         event_type: "task_completed",
-        source: "secretary",
+        source: agent_id || "secretary",
         task_id: task.id,
-        payload: { status: "reported_to_secretary" },
+        payload: { status: "reported_to_secretary", model: modelId, provider },
       });
     }
 
@@ -167,8 +414,7 @@ Failure statuses:
   } catch (e) {
     console.error("chat error:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
