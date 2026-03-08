@@ -3,6 +3,7 @@ export type Msg = {
   content: string;
   timestamp?: string;
   failed?: boolean;
+  completedTask?: ActiveTask; // inline timeline after completion
 };
 
 export type StreamMeta = {
@@ -24,7 +25,6 @@ export type TaskAction = {
   output?: string;
 };
 
-// Active tasks tracked globally so the panel can subscribe
 export type ActiveTask = {
   id: string;
   category: string;
@@ -36,16 +36,24 @@ export type ActiveTask = {
   agentName?: string;
   model?: string;
   startedAt: number;
+  completedAt?: number;
 };
 
 type TaskListener = (tasks: ActiveTask[]) => void;
+type CompletedTaskListener = (task: ActiveTask) => void;
 let activeTasks: ActiveTask[] = [];
 let taskListeners: TaskListener[] = [];
+let completedListeners: CompletedTaskListener[] = [];
 
 export function subscribeToTasks(fn: TaskListener): () => void {
   taskListeners.push(fn);
   fn([...activeTasks]);
   return () => { taskListeners = taskListeners.filter(l => l !== fn); };
+}
+
+export function subscribeToCompletedTasks(fn: CompletedTaskListener): () => void {
+  completedListeners.push(fn);
+  return () => { completedListeners = completedListeners.filter(l => l !== fn); };
 }
 
 function notifyTaskListeners() {
@@ -63,6 +71,17 @@ function upsertTask(meta: StreamMeta) {
     if (meta.error) existing.error = meta.error;
     if (meta.agentName) existing.agentName = meta.agentName;
     if (meta.model) existing.model = meta.model;
+
+    // If task just completed, notify completed listeners and auto-remove after delay
+    if (meta.status === "done" || meta.status === "failed") {
+      existing.completedAt = Date.now();
+      const completedTask = { ...existing };
+      setTimeout(() => {
+        completedListeners.forEach(fn => fn(completedTask));
+        activeTasks = activeTasks.filter(t => t.id !== id);
+        notifyTaskListeners();
+      }, 800); // brief pause so user sees the final state
+    }
   } else {
     activeTasks.push({
       id,
@@ -148,7 +167,6 @@ export async function streamChat({
         const parsed = JSON.parse(jsonStr);
         
         if (parsed.type === "meta") {
-          // Route to task panel
           if (parsed.taskId) upsertTask(parsed);
           if (onMeta) onMeta(parsed);
           continue;
@@ -163,7 +181,6 @@ export async function streamChat({
     }
   }
 
-  // Final flush
   if (textBuffer.trim()) {
     for (let raw of textBuffer.split("\n")) {
       if (!raw) continue;

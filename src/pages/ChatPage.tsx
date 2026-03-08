@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from "react";
 import {
-  Send, Loader2, RotateCcw, ExternalLink, ChevronDown, ChevronRight,
-  Bot, FileCode, X, AlertTriangle, Check, ExternalLink as LinkIcon
+  Send, Loader2, RotateCcw, ExternalLink,
+  Bot, FileCode, X, AlertTriangle
 } from "lucide-react";
-import { streamChat, subscribeToTasks, dismissTask, type Msg, type ActiveTask, type TaskAction } from "@/lib/chat-stream";
+import { streamChat, subscribeToTasks, subscribeToCompletedTasks, type Msg, type ActiveTask } from "@/lib/chat-stream";
 import { supabase } from "@/integrations/supabase/client";
 import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
+import { TaskSidebar } from "@/components/chat/TaskSidebar";
+import { CompactTimeline } from "@/components/chat/CompactTimeline";
 
 // ── Types ──
 interface CodeAttachment {
@@ -27,9 +29,6 @@ function detectLanguage(code: string): string {
   return "text";
 }
 
-// ══════════════════════════════════════════════
-// ChatPage — split layout: chat center + task panel right
-// ══════════════════════════════════════════════
 export default function ChatPage() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -42,9 +41,25 @@ export default function ChatPage() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Subscribe to task timeline
+  // Subscribe to running tasks (sidebar)
   useEffect(() => {
     return subscribeToTasks(setActiveTasks);
+  }, []);
+
+  // Subscribe to completed tasks → inject compact timeline into chat
+  useEffect(() => {
+    return subscribeToCompletedTasks((completedTask) => {
+      setMessages(prev => {
+        // Insert a virtual "task complete" message in the chat
+        const taskMsg: Msg = {
+          role: "assistant",
+          content: "",
+          timestamp: new Date().toISOString(),
+          completedTask,
+        };
+        return [...prev, taskMsg];
+      });
+    });
   }, []);
 
   // Load chat history
@@ -119,7 +134,7 @@ export default function ChatPage() {
       assistantSoFar += chunk;
       setMessages(prev => {
         const last = prev[prev.length - 1];
-        if (last?.role === "assistant" && !last.failed) {
+        if (last?.role === "assistant" && !last.failed && !last.completedTask) {
           return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: assistantSoFar } : m));
         }
         return [...prev, { role: "assistant", content: assistantSoFar, timestamp: new Date().toISOString() }];
@@ -157,12 +172,10 @@ export default function ChatPage() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
   };
 
-  const hasActiveTasks = activeTasks.length > 0;
-
   return (
     <div className="flex h-[calc(100vh-44px)]">
       {/* ── CHAT AREA ── */}
-      <div className={cn("flex flex-col flex-1 min-w-0 transition-all duration-500 ease-out")}>
+      <div className="flex flex-col flex-1 min-w-0 transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]">
         {/* Header */}
         <div className="shrink-0 h-10 flex items-center justify-between border-b border-border/50 bg-card/50 backdrop-blur-sm px-4 z-20">
           <div className="flex items-center gap-2">
@@ -181,14 +194,22 @@ export default function ChatPage() {
         </div>
 
         {/* Messages */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-auto" onScroll={handleScroll}>
+        <div ref={scrollContainerRef} className="flex-1 overflow-auto scroll-smooth" onScroll={handleScroll}>
           <div className="max-w-3xl mx-auto px-4 py-6">
             {messages.length === 0 ? (
               <EmptyState onSend={send} />
             ) : (
               <div className="space-y-3">
                 {messages.map((msg, i) => (
-                  <ChatMessage key={i} msg={msg} onRetry={msg.failed ? handleRetry : undefined} />
+                  msg.completedTask ? (
+                    <div key={i} className="flex justify-start">
+                      <div className="max-w-[80%] w-full">
+                        <CompactTimeline task={msg.completedTask} />
+                      </div>
+                    </div>
+                  ) : (
+                    <ChatMessage key={i} msg={msg} onRetry={msg.failed ? handleRetry : undefined} />
+                  )
                 ))}
                 {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
                   <div className="flex justify-start animate-in slide-in-from-bottom-2 fade-in duration-300">
@@ -249,7 +270,7 @@ export default function ChatPage() {
               type="submit"
               disabled={(!input.trim() && !codeAttachment) || isLoading}
               className={cn(
-                "shrink-0 h-10 w-10 rounded-full flex items-center justify-center transition-all",
+                "shrink-0 h-10 w-10 rounded-full flex items-center justify-center transition-all duration-300",
                 "bg-primary text-primary-foreground hover:bg-primary/90",
                 "disabled:opacity-30 disabled:cursor-not-allowed"
               )}
@@ -260,27 +281,8 @@ export default function ChatPage() {
         </form>
       </div>
 
-      {/* ── TASK TIMELINE PANEL (fixed right) ── */}
-      <div
-        className={cn(
-          "shrink-0 border-l border-border bg-card/30 backdrop-blur-sm overflow-hidden transition-all duration-500 ease-out",
-          hasActiveTasks ? "w-80" : "w-0"
-        )}
-      >
-        {hasActiveTasks && (
-          <div className="w-80 h-full flex flex-col animate-in slide-in-from-right-4 fade-in duration-500">
-            <div className="shrink-0 h-10 flex items-center justify-between border-b border-border/50 px-4">
-              <span className="text-xs font-medium text-foreground">Active Tasks</span>
-              <span className="text-[10px] font-mono text-muted-foreground">{activeTasks.length}</span>
-            </div>
-            <div className="flex-1 overflow-auto p-3 space-y-3">
-              {activeTasks.map(task => (
-                <TaskCard key={task.id} task={task} onDismiss={() => dismissTask(task.id)} />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      {/* ── TASK SIDEBAR (auto-opens on running, auto-closes on done) ── */}
+      <TaskSidebar tasks={activeTasks} />
     </div>
   );
 }
@@ -300,7 +302,7 @@ function EmptyState({ onSend }: { onSend: (text: string) => void }) {
       <div className="mt-6 flex flex-wrap gap-2 justify-center max-w-md">
         {["Make me a presentation about Thailand", "Make me a website about me", "Who am I?"].map(q => (
           <button key={q} onClick={() => onSend(q)}
-            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors">
+            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors duration-300">
             {q}
           </button>
         ))}
@@ -316,7 +318,7 @@ function ChatMessage({ msg, onRetry }: { msg: Msg; onRetry?: () => void }) {
   return (
     <div className={cn("flex animate-in slide-in-from-bottom-2 fade-in duration-300", isUser ? "justify-end" : "justify-start")}>
       <div className={cn(
-        "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm relative group",
+        "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm relative group transition-all duration-300",
         isUser ? "bg-primary text-primary-foreground"
           : isFailed ? "bg-destructive/10 border border-destructive/20 text-foreground"
           : "bg-muted text-foreground"
@@ -352,115 +354,14 @@ function ChatMessage({ msg, onRetry }: { msg: Msg; onRetry?: () => void }) {
             {msg.content}
           </ReactMarkdown>
         </div>
-        <div className={cn("text-[10px] font-mono mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity",
+        <div className={cn("text-[10px] font-mono mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-300",
           isUser ? "text-primary-foreground/50 text-right" : "text-muted-foreground")}>
           {formatTime(msg.timestamp)}
         </div>
         {isFailed && onRetry && (
-          <button onClick={onRetry} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-destructive hover:text-destructive/80 transition-colors">
+          <button onClick={onRetry} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-destructive hover:text-destructive/80 transition-colors duration-300">
             <RotateCcw className="h-3 w-3" /> Retry Request
           </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Task Card (right panel) ──
-
-function TaskCard({ task, onDismiss }: { task: ActiveTask; onDismiss: () => void }) {
-  const isDone = task.status === "done";
-  const isFailed = task.status === "failed";
-  const isRunning = !isDone && !isFailed;
-
-  return (
-    <div className={cn(
-      "rounded-xl border overflow-hidden transition-all duration-300",
-      isFailed ? "border-destructive/30 bg-destructive/5"
-        : isDone ? "border-emerald-500/30 bg-emerald-500/5"
-        : "border-accent/30 bg-accent/5"
-    )}>
-      {/* Card header */}
-      <div className={cn("flex items-center gap-2 px-3 py-2 border-b",
-        isFailed ? "border-destructive/20" : isDone ? "border-emerald-500/20" : "border-accent/20"
-      )}>
-        {isFailed ? <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
-          : isDone ? <Check className="h-3.5 w-3.5 text-emerald-500" />
-          : <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />}
-        <span className="text-[11px] font-medium text-foreground flex-1 truncate">
-          {task.category === "presentation" ? "🎨 Presentation" : task.category === "website" ? "🌐 Website" : task.category}
-        </span>
-        {(isDone || isFailed) && (
-          <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground transition-colors">
-            <X className="h-3 w-3" />
-          </button>
-        )}
-      </div>
-
-      {/* Timeline */}
-      <div className="px-3 py-2 space-y-1">
-        {task.actions.map((action, i) => (
-          <TimelineItem key={i} action={action} isLast={i === task.actions.length - 1} />
-        ))}
-      </div>
-
-      {/* Result link */}
-      {isDone && task.url && (
-        <div className="px-3 pb-2">
-          <a href={task.url} target="_blank" rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors bg-primary/10 rounded-lg px-2.5 py-1.5 w-full justify-center">
-            <ExternalLink className="h-3 w-3" />
-            Open Result
-          </a>
-        </div>
-      )}
-
-      {/* Error */}
-      {isFailed && task.error && (
-        <div className="px-3 pb-2">
-          <p className="text-[10px] font-mono text-destructive">{task.error}</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TimelineItem({ action, isLast }: { action: TaskAction; isLast: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="flex gap-2">
-      {/* Vertical line + dot */}
-      <div className="flex flex-col items-center pt-1">
-        <div className={cn("h-2 w-2 rounded-full shrink-0 transition-colors duration-300",
-          action.status === "done" ? "bg-emerald-500"
-            : action.status === "failed" ? "bg-destructive"
-            : "bg-accent animate-pulse"
-        )} />
-        {!isLast && <div className="w-px flex-1 bg-border/50 mt-0.5" />}
-      </div>
-      {/* Content */}
-      <div className="flex-1 min-w-0 pb-2">
-        <button onClick={() => action.output && setExpanded(!expanded)}
-          className="flex items-center gap-1 w-full text-left">
-          <span className="text-[11px] font-medium text-foreground truncate flex-1">{action.title}</span>
-          <span className={cn("text-[9px] font-mono px-1.5 py-0.5 rounded-full shrink-0",
-            action.status === "done" ? "text-emerald-600 bg-emerald-500/10"
-              : action.status === "failed" ? "text-destructive bg-destructive/10"
-              : "text-accent bg-accent/10"
-          )}>
-            {action.status === "done" ? "Done" : action.status === "failed" ? "Failed" : "Running"}
-          </span>
-          {action.output && (
-            expanded ? <ChevronDown className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-              : <ChevronRight className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-          )}
-        </button>
-        <span className="text-[10px] font-mono text-muted-foreground">{action.agent}</span>
-        {expanded && action.output && (
-          <pre className="text-[10px] font-mono bg-background rounded-md p-2 mt-1 overflow-x-auto text-muted-foreground border border-border/50 max-h-24 overflow-y-auto">
-            {action.output}
-          </pre>
         )}
       </div>
     </div>
