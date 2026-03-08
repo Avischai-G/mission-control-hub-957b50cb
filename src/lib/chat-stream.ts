@@ -2,7 +2,6 @@ export type Msg = {
   role: "user" | "assistant";
   content: string;
   timestamp?: string;
-  meta?: StreamMeta;
   failed?: boolean;
 };
 
@@ -23,9 +22,73 @@ export type TaskAction = {
   title: string;
   status: "running" | "done" | "failed";
   output?: string;
-  startedAt?: string;
-  completedAt?: string;
 };
+
+// Active tasks tracked globally so the panel can subscribe
+export type ActiveTask = {
+  id: string;
+  category: string;
+  title: string;
+  status: string;
+  actions: TaskAction[];
+  url?: string;
+  error?: string;
+  agentName?: string;
+  model?: string;
+  startedAt: number;
+};
+
+type TaskListener = (tasks: ActiveTask[]) => void;
+let activeTasks: ActiveTask[] = [];
+let taskListeners: TaskListener[] = [];
+
+export function subscribeToTasks(fn: TaskListener): () => void {
+  taskListeners.push(fn);
+  fn([...activeTasks]);
+  return () => { taskListeners = taskListeners.filter(l => l !== fn); };
+}
+
+function notifyTaskListeners() {
+  const snapshot = [...activeTasks];
+  taskListeners.forEach(fn => fn(snapshot));
+}
+
+function upsertTask(meta: StreamMeta) {
+  const id = meta.taskId || "unknown";
+  const existing = activeTasks.find(t => t.id === id);
+  if (existing) {
+    if (meta.status) existing.status = meta.status;
+    if (meta.actions) existing.actions = meta.actions;
+    if (meta.url) existing.url = meta.url;
+    if (meta.error) existing.error = meta.error;
+    if (meta.agentName) existing.agentName = meta.agentName;
+    if (meta.model) existing.model = meta.model;
+  } else {
+    activeTasks.push({
+      id,
+      category: meta.category || "task",
+      title: meta.actions?.[0]?.title || meta.category || "Task",
+      status: meta.status || "running",
+      actions: meta.actions || [],
+      url: meta.url,
+      error: meta.error,
+      agentName: meta.agentName,
+      model: meta.model,
+      startedAt: Date.now(),
+    });
+  }
+  notifyTaskListeners();
+}
+
+export function clearFinishedTasks() {
+  activeTasks = activeTasks.filter(t => t.status !== "done" && t.status !== "failed");
+  notifyTaskListeners();
+}
+
+export function dismissTask(taskId: string) {
+  activeTasks = activeTasks.filter(t => t.id !== taskId);
+  notifyTaskListeners();
+}
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
@@ -84,9 +147,10 @@ export async function streamChat({
       try {
         const parsed = JSON.parse(jsonStr);
         
-        // Handle metadata events
-        if (parsed.type === "meta" && onMeta) {
-          onMeta(parsed);
+        if (parsed.type === "meta") {
+          // Route to task panel
+          if (parsed.taskId) upsertTask(parsed);
+          if (onMeta) onMeta(parsed);
           continue;
         }
         
@@ -110,8 +174,9 @@ export async function streamChat({
       if (jsonStr === "[DONE]") continue;
       try {
         const parsed = JSON.parse(jsonStr);
-        if (parsed.type === "meta" && onMeta) {
-          onMeta(parsed);
+        if (parsed.type === "meta") {
+          if (parsed.taskId) upsertTask(parsed);
+          if (onMeta) onMeta(parsed);
           continue;
         }
         const content = parsed.choices?.[0]?.delta?.content as string | undefined;
