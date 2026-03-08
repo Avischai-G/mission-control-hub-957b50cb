@@ -28,6 +28,7 @@ export function ModelsTab() {
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ model_id: "", display_name: "", model_type: "chat", credential_id: "" });
+  const [typeOpen, setTypeOpen] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [verified, setVerified] = useState<boolean | null>(null);
   const [verifyError, setVerifyError] = useState("");
@@ -172,13 +173,30 @@ export function ModelsTab() {
                     className={inputCls + " w-full"}
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1 relative">
                   <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Type</label>
-                  <select value={form.model_type} onChange={e => setForm(f => ({ ...f, model_type: e.target.value }))} className={inputCls + " w-full"}>
-                    <option value="chat">Chat</option>
-                    <option value="embedding">Embedding</option>
-                    <option value="completion">Completion</option>
-                  </select>
+                  <input
+                    value={form.model_type}
+                    onChange={e => { setForm(f => ({ ...f, model_type: e.target.value })); setTypeOpen(true); }}
+                    onFocus={() => setTypeOpen(true)}
+                    onBlur={() => setTimeout(() => setTypeOpen(false), 150)}
+                    placeholder="e.g. chat, embedding, completion"
+                    className={inputCls + " w-full"}
+                  />
+                  {typeOpen && (
+                    <div className="absolute z-10 top-full mt-1 w-full rounded-md border border-border bg-popover shadow-md">
+                      {["chat", "embedding", "completion"].filter(t => t.includes(form.model_type.toLowerCase())).map(t => (
+                        <button
+                          key={t}
+                          type="button"
+                          onMouseDown={e => { e.preventDefault(); setForm(f => ({ ...f, model_type: t })); setTypeOpen(false); }}
+                          className={`w-full text-left px-3 py-1.5 text-sm hover:bg-accent transition-colors ${form.model_type === t ? "bg-accent text-accent-foreground" : "text-popover-foreground"}`}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
