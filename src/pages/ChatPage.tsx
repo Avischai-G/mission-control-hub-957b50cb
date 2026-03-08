@@ -3,6 +3,7 @@ import { Send, Loader2 } from "lucide-react";
 import { streamChat, type Msg } from "@/lib/chat-stream";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import ReactMarkdown from "react-markdown";
 
 export default function ChatPage() {
   const [input, setInput] = useState("");
