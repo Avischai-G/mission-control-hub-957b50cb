@@ -36,12 +36,12 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({ onOpenSetup }: AppSidebarProps) {
-  const { state } = useSidebar();
+  const { state, setOpen } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible="icon" onClick={() => { if (collapsed) setOpen(true); }}>
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary/70">
