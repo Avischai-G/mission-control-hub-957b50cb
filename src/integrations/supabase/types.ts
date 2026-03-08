@@ -253,6 +253,38 @@ export type Database = {
           },
         ]
       }
+      credential_values: {
+        Row: {
+          created_at: string
+          credential_meta_id: string
+          encrypted_value: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          credential_meta_id: string
+          encrypted_value: string
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          credential_meta_id?: string
+          encrypted_value?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credential_values_credential_meta_id_fkey"
+            columns: ["credential_meta_id"]
+            isOneToOne: true
+            referencedRelation: "credentials_meta"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       credentials_meta: {
         Row: {
           created_at: string
