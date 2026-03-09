@@ -86,7 +86,41 @@ export function CompactTimeline({ task }: { task: ActiveTask }) {
   );
 }
 
-function CompactAction({ action }: { action: TaskAction }) {
+/**
+ * Expanded timeline content — shows steps directly without a collapsible header.
+ */
+export function CompactTimelineExpanded({ task }: { task: ActiveTask }) {
+  const isFailed = task.status === "failed";
+
+  return (
+    <div className="animate-in fade-in duration-300">
+      <div className={cn("ml-2 pl-3 border-l-2 space-y-1", isFailed ? "border-destructive/30" : "border-success/30")}>
+        {task.actions.map((action, i) => (
+          <CompactAction key={i} action={action} />
+        ))}
+        {task.agentName && (
+          <div className="flex items-center gap-1.5 pt-1 text-[10px] font-mono text-muted-foreground">
+            <Cpu className="h-2.5 w-2.5" />
+            {task.agentName}{task.model ? ` · ${task.model}` : ""}
+          </div>
+        )}
+        {task.url && (
+          <a
+            href={task.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:text-primary/80 transition-colors duration-300 pt-1"
+          >
+            Open result →
+          </a>
+        )}
+        {task.error && (
+          <p className="text-[10px] font-mono text-destructive pt-1">{task.error}</p>
+        )}
+      </div>
+    </div>
+  );
+}
   const [showOutput, setShowOutput] = useState(false);
 
   return (
