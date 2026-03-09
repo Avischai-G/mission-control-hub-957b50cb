@@ -29,8 +29,8 @@ export function TaskPanel({ tasks, visible }: { tasks: ActiveTask[]; visible: bo
   const totalActions = allActions.length || 1;
   const progress = doneActions / totalActions;
 
-  // Height for separator fade (content + 40px extra)
-  const separatorHeight = contentHeight + 40;
+  // Height for separator fade (content + 120px extra for better separation)
+  const separatorHeight = contentHeight + 120;
   // Timeline line is shorter — content height only, fades faster
   const timelineLineHeight = contentHeight;
 
