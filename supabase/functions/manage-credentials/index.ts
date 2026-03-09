@@ -103,9 +103,15 @@ serve(async (req) => {
           testResult.valid = r.status !== 401 && r.status !== 403;
           if (!testResult.valid) testResult.error = `HTTP ${r.status}`;
         } else if (provider === "google" || provider === "gemini") {
-          const r = await fetch(
-            `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`
+          // Try v1beta first for newer models, fallback to v1
+          let r = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
           );
+          if (!r.ok) {
+            r = await fetch(
+              `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`
+            );
+          }
           testResult.valid = r.ok;
           if (!r.ok) testResult.error = `HTTP ${r.status}`;
         } else {
