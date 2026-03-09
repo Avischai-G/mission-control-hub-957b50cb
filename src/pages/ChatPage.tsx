@@ -33,12 +33,13 @@ function detectLanguage(code: string): string {
 export default function ChatPage() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false); // true only while secretary text is actively streaming
   const [codeAttachment, setCodeAttachment] = useState<CodeAttachment | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [lastSentText, setLastSentText] = useState("");
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([]);
-  // Track which taskId is associated with the current streaming assistant message
+  // Track the message index that the current stream should update
+  const streamTargetIdxRef = useRef<number | null>(null);
   const currentTaskIdRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -46,7 +47,9 @@ export default function ChatPage() {
 
   // Derived state
   const hasRunningTasks = activeTasks.some(t => t.status !== "done" && t.status !== "failed");
-  const hasPlan = activeTasks.some(t => t.actions.length > 1); // more than just "classifying"
+  // Show timeline only when we have a real plan (more than just "classifying")
+  const hasPlan = activeTasks.some(t => t.actions.length > 1);
+  // Show "agent working" indicator only before plan is ready, and only when tasks exist
   const showIndicator = hasRunningTasks && !hasPlan;
   const showPanel = hasRunningTasks && hasPlan;
   const currentAgentName = activeTasks[0]?.agentName;
@@ -63,13 +66,11 @@ export default function ChatPage() {
         // Find the assistant message that has this taskId
         const targetIdx = prev.findIndex(m => m.taskId === completedTask.id);
         if (targetIdx !== -1) {
-          // Attach completed task to the existing message
           return prev.map((m, i) => 
             i === targetIdx ? { ...m, completedTask } : m
           );
         }
-        // Fallback: find the last assistant message before any user messages after it
-        // This handles the case where no taskId was set
+        // Fallback: find the last assistant message without a completed task
         const lastAssistantIdx = [...prev].reverse().findIndex(m => m.role === "assistant" && !m.completedTask);
         if (lastAssistantIdx !== -1) {
           const realIdx = prev.length - 1 - lastAssistantIdx;
@@ -133,7 +134,8 @@ export default function ChatPage() {
   const send = async (text: string, retrying = false) => {
     const finalText = text.trim();
     if (!finalText && !codeAttachment) return;
-    if (isLoading) return;
+    // Don't block if a background task is running - only block if actively streaming secretary response
+    if (isStreaming) return;
 
     let fullContent = finalText;
     if (codeAttachment) {
@@ -144,55 +146,77 @@ export default function ChatPage() {
     if (!retrying) setMessages(prev => [...prev, userMsg]);
     setInput("");
     setCodeAttachment(null);
-    setIsLoading(true);
+    setIsStreaming(true);
     setLastSentText(fullContent);
     setIsAtBottom(true);
     currentTaskIdRef.current = null;
+    streamTargetIdxRef.current = null;
 
     let assistantSoFar = "";
+    let secretaryDone = false;
 
     const upsertAssistant = (chunk: string) => {
       assistantSoFar += chunk;
+      const content = assistantSoFar;
+
       setMessages(prev => {
+        // If we already have a target index, update that specific message
+        if (streamTargetIdxRef.current !== null && streamTargetIdxRef.current < prev.length) {
+          return prev.map((m, i) => 
+            i === streamTargetIdxRef.current ? { ...m, content } : m
+          );
+        }
+        // Otherwise, check if the last message is our streaming assistant message
         const last = prev[prev.length - 1];
         if (last?.role === "assistant" && !last.failed && !last.completedTask) {
-          return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: assistantSoFar } : m));
+          streamTargetIdxRef.current = prev.length - 1;
+          return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content } : m));
         }
-        return [...prev, { role: "assistant", content: assistantSoFar, timestamp: new Date().toISOString(), taskId: currentTaskIdRef.current || undefined }];
+        // Create new assistant message
+        const newIdx = prev.length;
+        streamTargetIdxRef.current = newIdx;
+        return [...prev, { role: "assistant", content, timestamp: new Date().toISOString(), taskId: currentTaskIdRef.current || undefined }];
       });
     };
 
     const handleMeta = (meta: StreamMeta) => {
-      // When we get a taskId, associate it with the current assistant message
+      // When we get the first meta with a taskId, the secretary has acknowledged.
+      // Allow user to continue chatting.
       if (meta.taskId && !currentTaskIdRef.current) {
         currentTaskIdRef.current = meta.taskId;
         // Tag the existing assistant message with this taskId
         setMessages(prev => {
-          const lastAssistantIdx = prev.length - 1;
-          if (lastAssistantIdx >= 0 && prev[lastAssistantIdx]?.role === "assistant") {
+          if (streamTargetIdxRef.current !== null && streamTargetIdxRef.current < prev.length) {
             return prev.map((m, i) => 
-              i === lastAssistantIdx ? { ...m, taskId: meta.taskId } : m
+              i === streamTargetIdxRef.current ? { ...m, taskId: meta.taskId } : m
             );
           }
           return prev;
         });
       }
+
+      // When we get a plan (actions > 1), secretary text streaming is done - unlock chat
+      if (meta.actions && meta.actions.length > 1 && !secretaryDone) {
+        secretaryDone = true;
+        setIsStreaming(false);
+      }
     };
 
     try {
+      const allMsgs = [...(retrying ? messages : [...messages, userMsg])].filter(m => !m.failed);
       await streamChat({
-        messages: [...(retrying ? messages : [...messages, userMsg])].filter(m => !m.failed),
+        messages: allMsgs,
         onDelta: upsertAssistant,
         onMeta: handleMeta,
         onDone: async () => {
-          setIsLoading(false);
+          setIsStreaming(false);
           if (assistantSoFar) {
             await supabase.from("chat_messages").insert({ role: "assistant", content: assistantSoFar, agent_id: "secretary" });
           }
         },
       });
     } catch (e: any) {
-      setIsLoading(false);
+      setIsStreaming(false);
       setMessages(prev => {
         if (prev[prev.length - 1]?.role === "assistant") {
           return prev.map((m, i) => (i === prev.length - 1 ? { ...m, failed: true, content: m.content || e.message } : m));
@@ -225,7 +249,7 @@ export default function ChatPage() {
             <span className="h-1.5 w-1.5 rounded-full bg-success" title="Always available" />
           </div>
           <div className="flex items-center gap-3">
-            {isLoading && !showIndicator && (
+            {isStreaming && !showIndicator && (
               <span className="inline-flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground transition-opacity duration-500">
                 <Loader2 className="h-3 w-3 animate-spin text-accent" />
                 Responding…
@@ -245,7 +269,7 @@ export default function ChatPage() {
                 {messages.map((msg, i) => (
                   <ChatMessage key={i} msg={msg} onRetry={msg.failed ? handleRetry : undefined} />
                 ))}
-                {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
+                {isStreaming && messages[messages.length - 1]?.role !== "assistant" && (
                   <div className="flex justify-start animate-in slide-in-from-bottom-2 fade-in duration-500">
                     <div className="bg-muted rounded-2xl px-4 py-3">
                       <div className="flex gap-1">
@@ -285,7 +309,7 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* Input */}
+        {/* Input — never disabled, only blocked during active secretary streaming */}
         <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="border-t border-border bg-card/50 backdrop-blur-sm p-3">
           <div className="max-w-3xl mx-auto flex items-end gap-2">
             <textarea
@@ -298,11 +322,11 @@ export default function ChatPage() {
               rows={1}
               className="flex-1 resize-none rounded-2xl border border-border bg-secondary/50 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 transition-shadow duration-300 font-[var(--font-display)]"
               style={{ maxHeight: 200 }}
-              disabled={isLoading}
+              disabled={isStreaming}
             />
             <button
               type="submit"
-              disabled={(!input.trim() && !codeAttachment) || isLoading}
+              disabled={(!input.trim() && !codeAttachment) || isStreaming}
               className={cn(
                 "shrink-0 h-10 w-10 rounded-full flex items-center justify-center",
                 "transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
@@ -310,13 +334,13 @@ export default function ChatPage() {
                 "disabled:opacity-30 disabled:cursor-not-allowed"
               )}
             >
-              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {isStreaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </button>
           </div>
         </form>
       </div>
 
-      {/* ── TASK PANEL ── */}
+      {/* ── TASK PANEL — no right border line ── */}
       <TaskPanel tasks={activeTasks} visible={showPanel} />
     </div>
   );
