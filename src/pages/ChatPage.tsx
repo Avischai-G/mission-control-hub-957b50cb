@@ -399,13 +399,11 @@ function ChatMessage({ msg, onRetry }: { msg: Msg; onRetry?: () => void }) {
             <RotateCcw className="h-3 w-3" /> Retry Request
           </button>
         )}
+        {/* Progress timeline toggle — inside the bubble, bottom-right */}
+        {!isUser && msg.completedTask && (
+          <TimelineToggle task={msg.completedTask} />
+        )}
       </div>
-      {/* Compact timeline dropdown — shown under the correct assistant message */}
-      {!isUser && msg.completedTask && (
-        <div className="max-w-[80%] w-full">
-          <CompactTimeline task={msg.completedTask} />
-        </div>
-      )}
     </div>
   );
 }
