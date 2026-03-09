@@ -283,6 +283,18 @@ serve(async (req) => {
     const stream = new ReadableStream({
       async start(controller) {
         try {
+          // If specialist task, emit initial "classifying" meta right away
+          if (category !== "chat" && category !== "cron" && taskRecord) {
+            controller.enqueue(encoder.encode(metaEvent({
+              taskId: taskRecord.id, category, status: "classifying",
+              agentName: "orchestrator",
+              model: orchestratorInfo.modelId,
+              actions: [
+                { agent: "orchestrator", title: "Classifying request", status: "done" },
+              ],
+            })));
+          }
+
           // Phase 1: Stream secretary's response
           const secretaryResp = await streamLLM(
             secretaryInfo.provider, secretaryInfo.modelId, secretaryInfo.apiKey, secretaryMessages
@@ -333,18 +345,20 @@ serve(async (req) => {
             });
           }
 
-          // Phase 2: If specialist task, run it and emit meta events to timeline
-          if (category !== "chat" && taskRecord) {
+          // Phase 2: If specialist task, run it and emit granular meta events
+          if (category !== "chat" && category !== "cron" && taskRecord) {
             let specialistInfo;
             try { specialistInfo = await resolveAgent(supabase, specialistId); }
             catch { specialistInfo = { agent: null, modelId: orchestratorInfo.modelId, provider: orchestratorInfo.provider, apiKey: orchestratorInfo.apiKey }; }
 
-            // Emit: task started
+            // Emit: selecting agent
             controller.enqueue(encoder.encode(metaEvent({
-              taskId: taskRecord.id, category, status: "classifying",
-              agentName: specialistId,
+              taskId: taskRecord.id, category, status: "agent_selected",
+              agentName: specialistInfo.agent?.name || specialistId,
+              model: specialistInfo.modelId,
               actions: [
                 { agent: "orchestrator", title: "Classifying request", status: "done" },
+                { agent: "orchestrator", title: "Selecting specialist agent", status: "done" },
                 { agent: specialistId, title: `Generating ${category}`, status: "running" },
               ],
             })));
@@ -356,25 +370,62 @@ serve(async (req) => {
 
               // Load knowledge for website
               if (category === "website") {
+                // Emit: loading context
+                controller.enqueue(encoder.encode(metaEvent({
+                  taskId: taskRecord.id, status: "loading_context",
+                  actions: [
+                    { agent: "orchestrator", title: "Classifying request", status: "done" },
+                    { agent: "orchestrator", title: "Selecting specialist agent", status: "done" },
+                    { agent: "context-agent", title: "Loading knowledge", status: "running" },
+                    { agent: specialistId, title: `Generating ${category}`, status: "running" },
+                  ],
+                })));
+
                 const { data: knowledge } = await supabase.from("knowledge_files")
                   .select("title, content, summary").eq("is_valid", true).eq("domain", "personal").limit(10);
                 if (knowledge?.length) {
                   systemPrompt += "\n\nKnowledge about the person:\n" + knowledge.map((k: any) => `### ${k.title}\n${k.content}`).join("\n\n");
-                  controller.enqueue(encoder.encode(metaEvent({
-                    taskId: taskRecord.id, status: "context_loaded",
-                    actions: [
-                      { agent: "orchestrator", title: "Classifying request", status: "done" },
-                      { agent: "context-agent", title: "Loading knowledge", status: "done", output: `${knowledge.length} file(s)` },
-                      { agent: specialistId, title: `Generating ${category}`, status: "running" },
-                    ],
-                  })));
                 }
+
+                // Emit: context loaded
+                controller.enqueue(encoder.encode(metaEvent({
+                  taskId: taskRecord.id, status: "context_loaded",
+                  actions: [
+                    { agent: "orchestrator", title: "Classifying request", status: "done" },
+                    { agent: "orchestrator", title: "Selecting specialist agent", status: "done" },
+                    { agent: "context-agent", title: "Loading knowledge", status: "done", output: `${knowledge?.length || 0} file(s)` },
+                    { agent: specialistId, title: `Generating ${category}`, status: "running" },
+                  ],
+                })));
               }
+
+              // Emit: specialist generating
+              controller.enqueue(encoder.encode(metaEvent({
+                taskId: taskRecord.id, status: "specialist_running",
+                actions: [
+                  { agent: "orchestrator", title: "Classifying request", status: "done" },
+                  { agent: "orchestrator", title: "Selecting specialist agent", status: "done" },
+                  ...(category === "website" ? [{ agent: "context-agent", title: "Loading knowledge", status: "done" as const }] : []),
+                  { agent: specialistId, title: `Generating ${category}`, status: "running" },
+                ],
+              })));
 
               const htmlContent = await callLLM(
                 specialistInfo.provider, specialistInfo.modelId, specialistInfo.apiKey,
                 [{ role: "system", content: systemPrompt }, { role: "user", content: userMessage }]
               );
+
+              // Emit: generation done, uploading
+              controller.enqueue(encoder.encode(metaEvent({
+                taskId: taskRecord.id, status: "uploading",
+                actions: [
+                  { agent: "orchestrator", title: "Classifying request", status: "done" },
+                  { agent: "orchestrator", title: "Selecting specialist agent", status: "done" },
+                  ...(category === "website" ? [{ agent: "context-agent", title: "Loading knowledge", status: "done" as const }] : []),
+                  { agent: specialistId, title: `Generating ${category}`, status: "done" },
+                  { agent: "storage", title: "Uploading file", status: "running" },
+                ],
+              })));
 
               let cleanHtml = htmlContent.trim();
               if (cleanHtml.startsWith("```html")) cleanHtml = cleanHtml.slice(7);
@@ -392,11 +443,12 @@ serve(async (req) => {
                 status: "reported_to_secretary", result: { url: publicUrl, type: category }
               }).eq("id", taskRecord.id);
 
-              // Emit: task done
+              // Emit: task done with all actions complete
               controller.enqueue(encoder.encode(metaEvent({
                 taskId: taskRecord.id, status: "done", url: publicUrl,
                 actions: [
                   { agent: "orchestrator", title: "Classifying request", status: "done" },
+                  { agent: "orchestrator", title: "Selecting specialist agent", status: "done" },
                   ...(category === "website" ? [{ agent: "context-agent", title: "Loading knowledge", status: "done" }] : []),
                   { agent: specialistId, title: `Generating ${category}`, status: "done" },
                   { agent: "storage", title: "Uploading file", status: "done", output: publicUrl },

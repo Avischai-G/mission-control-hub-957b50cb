@@ -3,7 +3,7 @@ import {
   Send, Loader2, RotateCcw, ExternalLink,
   Bot, FileCode, X, AlertTriangle
 } from "lucide-react";
-import { streamChat, subscribeToTasks, subscribeToCompletedTasks, type Msg, type ActiveTask } from "@/lib/chat-stream";
+import { streamChat, subscribeToTasks, subscribeToCompletedTasks, type Msg, type ActiveTask, type StreamMeta } from "@/lib/chat-stream";
 import { supabase } from "@/integrations/supabase/client";
 import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
@@ -38,13 +38,15 @@ export default function ChatPage() {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [lastSentText, setLastSentText] = useState("");
   const [activeTasks, setActiveTasks] = useState<ActiveTask[]>([]);
+  // Track which taskId is associated with the current streaming assistant message
+  const currentTaskIdRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Derived state: do we have a plan (actions) yet?
+  // Derived state
   const hasRunningTasks = activeTasks.some(t => t.status !== "done" && t.status !== "failed");
-  const hasPlan = activeTasks.some(t => t.actions.length > 0);
+  const hasPlan = activeTasks.some(t => t.actions.length > 1); // more than just "classifying"
   const showIndicator = hasRunningTasks && !hasPlan;
   const showPanel = hasRunningTasks && hasPlan;
   const currentAgentName = activeTasks[0]?.agentName;
@@ -54,17 +56,28 @@ export default function ChatPage() {
     return subscribeToTasks(setActiveTasks);
   }, []);
 
-  // Subscribe to completed tasks → inject compact timeline into chat
+  // Subscribe to completed tasks → attach to the correct message
   useEffect(() => {
     return subscribeToCompletedTasks((completedTask) => {
       setMessages(prev => {
-        const taskMsg: Msg = {
-          role: "assistant",
-          content: "",
-          timestamp: new Date().toISOString(),
-          completedTask,
-        };
-        return [...prev, taskMsg];
+        // Find the assistant message that has this taskId
+        const targetIdx = prev.findIndex(m => m.taskId === completedTask.id);
+        if (targetIdx !== -1) {
+          // Attach completed task to the existing message
+          return prev.map((m, i) => 
+            i === targetIdx ? { ...m, completedTask } : m
+          );
+        }
+        // Fallback: find the last assistant message before any user messages after it
+        // This handles the case where no taskId was set
+        const lastAssistantIdx = [...prev].reverse().findIndex(m => m.role === "assistant" && !m.completedTask);
+        if (lastAssistantIdx !== -1) {
+          const realIdx = prev.length - 1 - lastAssistantIdx;
+          return prev.map((m, i) =>
+            i === realIdx ? { ...m, completedTask } : m
+          );
+        }
+        return prev;
       });
     });
   }, []);
@@ -134,6 +147,7 @@ export default function ChatPage() {
     setIsLoading(true);
     setLastSentText(fullContent);
     setIsAtBottom(true);
+    currentTaskIdRef.current = null;
 
     let assistantSoFar = "";
 
@@ -144,14 +158,32 @@ export default function ChatPage() {
         if (last?.role === "assistant" && !last.failed && !last.completedTask) {
           return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: assistantSoFar } : m));
         }
-        return [...prev, { role: "assistant", content: assistantSoFar, timestamp: new Date().toISOString() }];
+        return [...prev, { role: "assistant", content: assistantSoFar, timestamp: new Date().toISOString(), taskId: currentTaskIdRef.current || undefined }];
       });
+    };
+
+    const handleMeta = (meta: StreamMeta) => {
+      // When we get a taskId, associate it with the current assistant message
+      if (meta.taskId && !currentTaskIdRef.current) {
+        currentTaskIdRef.current = meta.taskId;
+        // Tag the existing assistant message with this taskId
+        setMessages(prev => {
+          const lastAssistantIdx = prev.length - 1;
+          if (lastAssistantIdx >= 0 && prev[lastAssistantIdx]?.role === "assistant") {
+            return prev.map((m, i) => 
+              i === lastAssistantIdx ? { ...m, taskId: meta.taskId } : m
+            );
+          }
+          return prev;
+        });
+      }
     };
 
     try {
       await streamChat({
         messages: [...(retrying ? messages : [...messages, userMsg])].filter(m => !m.failed),
         onDelta: upsertAssistant,
+        onMeta: handleMeta,
         onDone: async () => {
           setIsLoading(false);
           if (assistantSoFar) {
@@ -199,7 +231,6 @@ export default function ChatPage() {
                 Responding…
               </span>
             )}
-            {/* Agent indicator — shows before plan arrives */}
             <AgentIndicator visible={showIndicator} agentName={currentAgentName} />
           </div>
         </div>
@@ -212,15 +243,7 @@ export default function ChatPage() {
             ) : (
               <div className="space-y-3">
                 {messages.map((msg, i) => (
-                  msg.completedTask ? (
-                    <div key={i} className="flex justify-start">
-                      <div className="max-w-[80%] w-full">
-                        <CompactTimeline task={msg.completedTask} />
-                      </div>
-                    </div>
-                  ) : (
-                    <ChatMessage key={i} msg={msg} onRetry={msg.failed ? handleRetry : undefined} />
-                  )
+                  <ChatMessage key={i} msg={msg} onRetry={msg.failed ? handleRetry : undefined} />
                 ))}
                 {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
                   <div className="flex justify-start animate-in slide-in-from-bottom-2 fade-in duration-500">
@@ -293,7 +316,7 @@ export default function ChatPage() {
         </form>
       </div>
 
-      {/* ── TASK PANEL (pushes chat left, no sidebar feel) ── */}
+      {/* ── TASK PANEL ── */}
       <TaskPanel tasks={activeTasks} visible={showPanel} />
     </div>
   );
@@ -328,7 +351,7 @@ function ChatMessage({ msg, onRetry }: { msg: Msg; onRetry?: () => void }) {
   const isFailed = msg.failed;
 
   return (
-    <div className={cn("flex animate-in slide-in-from-bottom-2 fade-in duration-500", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("flex flex-col gap-1.5 animate-in slide-in-from-bottom-2 fade-in duration-500", isUser ? "items-end" : "items-start")}>
       <div className={cn(
         "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm relative group",
         "transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
@@ -377,6 +400,12 @@ function ChatMessage({ msg, onRetry }: { msg: Msg; onRetry?: () => void }) {
           </button>
         )}
       </div>
+      {/* Compact timeline dropdown — shown under the correct assistant message */}
+      {!isUser && msg.completedTask && (
+        <div className="max-w-[80%] w-full">
+          <CompactTimeline task={msg.completedTask} />
+        </div>
+      )}
     </div>
   );
 }

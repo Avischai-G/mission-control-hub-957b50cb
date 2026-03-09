@@ -3,7 +3,8 @@ export type Msg = {
   content: string;
   timestamp?: string;
   failed?: boolean;
-  completedTask?: ActiveTask; // inline timeline after completion
+  taskId?: string; // links this message to a running/completed task
+  completedTask?: ActiveTask; // populated when the task finishes
 };
 
 export type StreamMeta = {
@@ -72,7 +73,6 @@ function upsertTask(meta: StreamMeta) {
     if (meta.agentName) existing.agentName = meta.agentName;
     if (meta.model) existing.model = meta.model;
 
-    // If task just completed, notify completed listeners and auto-remove after delay
     if (meta.status === "done" || meta.status === "failed") {
       existing.completedAt = Date.now();
       const completedTask = { ...existing };
@@ -80,7 +80,7 @@ function upsertTask(meta: StreamMeta) {
         completedListeners.forEach(fn => fn(completedTask));
         activeTasks = activeTasks.filter(t => t.id !== id);
         notifyTaskListeners();
-      }, 800); // brief pause so user sees the final state
+      }, 800);
     }
   } else {
     activeTasks.push({
