@@ -7,7 +7,8 @@ import { streamChat, subscribeToTasks, subscribeToCompletedTasks, type Msg, type
 import { supabase } from "@/integrations/supabase/client";
 import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
-import { TaskSidebar } from "@/components/chat/TaskSidebar";
+import { TaskPanel } from "@/components/chat/TaskPanel";
+import { AgentIndicator } from "@/components/chat/AgentIndicator";
 import { CompactTimeline } from "@/components/chat/CompactTimeline";
 
 // ── Types ──
@@ -41,7 +42,14 @@ export default function ChatPage() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Subscribe to running tasks (sidebar)
+  // Derived state: do we have a plan (actions) yet?
+  const hasRunningTasks = activeTasks.some(t => t.status !== "done" && t.status !== "failed");
+  const hasPlan = activeTasks.some(t => t.actions.length > 0);
+  const showIndicator = hasRunningTasks && !hasPlan;
+  const showPanel = hasRunningTasks && hasPlan;
+  const currentAgentName = activeTasks[0]?.agentName;
+
+  // Subscribe to running tasks
   useEffect(() => {
     return subscribeToTasks(setActiveTasks);
   }, []);
@@ -50,7 +58,6 @@ export default function ChatPage() {
   useEffect(() => {
     return subscribeToCompletedTasks((completedTask) => {
       setMessages(prev => {
-        // Insert a virtual "task complete" message in the chat
         const taskMsg: Msg = {
           role: "assistant",
           content: "",
@@ -183,14 +190,18 @@ export default function ChatPage() {
               <Bot className="h-3 w-3 text-primary" />
             </div>
             <span className="text-xs font-medium text-foreground">Secretary</span>
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" title="Always available" />
+            <span className="h-1.5 w-1.5 rounded-full bg-success" title="Always available" />
           </div>
-          {isLoading && (
-            <span className="inline-flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin text-accent" />
-              Responding…
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {isLoading && !showIndicator && (
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground transition-opacity duration-500">
+                <Loader2 className="h-3 w-3 animate-spin text-accent" />
+                Responding…
+              </span>
+            )}
+            {/* Agent indicator — shows before plan arrives */}
+            <AgentIndicator visible={showIndicator} agentName={currentAgentName} />
+          </div>
         </div>
 
         {/* Messages */}
@@ -212,7 +223,7 @@ export default function ChatPage() {
                   )
                 ))}
                 {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
-                  <div className="flex justify-start animate-in slide-in-from-bottom-2 fade-in duration-300">
+                  <div className="flex justify-start animate-in slide-in-from-bottom-2 fade-in duration-500">
                     <div className="bg-muted rounded-2xl px-4 py-3">
                       <div className="flex gap-1">
                         <span className="h-2 w-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:0ms]" />
@@ -243,7 +254,7 @@ export default function ChatPage() {
                     {codeAttachment.code.split("\n").slice(0, 2).join("\n")}
                   </pre>
                 </div>
-                <button onClick={() => setCodeAttachment(null)} className="text-muted-foreground hover:text-foreground transition-colors">
+                <button onClick={() => setCodeAttachment(null)} className="text-muted-foreground hover:text-foreground transition-colors duration-300">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -262,7 +273,7 @@ export default function ChatPage() {
               onPaste={handlePaste}
               placeholder="Message…"
               rows={1}
-              className="flex-1 resize-none rounded-2xl border border-border bg-secondary/50 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 transition-shadow font-[var(--font-display)]"
+              className="flex-1 resize-none rounded-2xl border border-border bg-secondary/50 px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 transition-shadow duration-300 font-[var(--font-display)]"
               style={{ maxHeight: 200 }}
               disabled={isLoading}
             />
@@ -270,7 +281,8 @@ export default function ChatPage() {
               type="submit"
               disabled={(!input.trim() && !codeAttachment) || isLoading}
               className={cn(
-                "shrink-0 h-10 w-10 rounded-full flex items-center justify-center transition-all duration-300",
+                "shrink-0 h-10 w-10 rounded-full flex items-center justify-center",
+                "transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
                 "bg-primary text-primary-foreground hover:bg-primary/90",
                 "disabled:opacity-30 disabled:cursor-not-allowed"
               )}
@@ -281,8 +293,8 @@ export default function ChatPage() {
         </form>
       </div>
 
-      {/* ── TASK SIDEBAR (auto-opens on running, auto-closes on done) ── */}
-      <TaskSidebar tasks={activeTasks} />
+      {/* ── TASK PANEL (pushes chat left, no sidebar feel) ── */}
+      <TaskPanel tasks={activeTasks} visible={showPanel} />
     </div>
   );
 }
@@ -302,7 +314,7 @@ function EmptyState({ onSend }: { onSend: (text: string) => void }) {
       <div className="mt-6 flex flex-wrap gap-2 justify-center max-w-md">
         {["Make me a presentation about Thailand", "Make me a website about me", "Who am I?"].map(q => (
           <button key={q} onClick={() => onSend(q)}
-            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors duration-300">
+            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/30 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
             {q}
           </button>
         ))}
@@ -316,9 +328,10 @@ function ChatMessage({ msg, onRetry }: { msg: Msg; onRetry?: () => void }) {
   const isFailed = msg.failed;
 
   return (
-    <div className={cn("flex animate-in slide-in-from-bottom-2 fade-in duration-300", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("flex animate-in slide-in-from-bottom-2 fade-in duration-500", isUser ? "justify-end" : "justify-start")}>
       <div className={cn(
-        "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm relative group transition-all duration-300",
+        "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm relative group",
+        "transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
         isUser ? "bg-primary text-primary-foreground"
           : isFailed ? "bg-destructive/10 border border-destructive/20 text-foreground"
           : "bg-muted text-foreground"
@@ -334,7 +347,7 @@ function ChatMessage({ msg, onRetry }: { msg: Msg; onRetry?: () => void }) {
             components={{
               a: ({ href, children }) => (
                 <a href={href} target="_blank" rel="noopener noreferrer"
-                  className={cn("inline-flex items-center gap-1 underline decoration-1 underline-offset-2",
+                  className={cn("inline-flex items-center gap-1 underline decoration-1 underline-offset-2 transition-colors duration-300",
                     isUser ? "text-primary-foreground/90 hover:text-primary-foreground" : "text-primary hover:text-primary/80")}>
                   {children}
                   <ExternalLink className="h-3 w-3 inline-block" />
@@ -354,7 +367,7 @@ function ChatMessage({ msg, onRetry }: { msg: Msg; onRetry?: () => void }) {
             {msg.content}
           </ReactMarkdown>
         </div>
-        <div className={cn("text-[10px] font-mono mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-300",
+        <div className={cn("text-[10px] font-mono mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-500",
           isUser ? "text-primary-foreground/50 text-right" : "text-muted-foreground")}>
           {formatTime(msg.timestamp)}
         </div>
