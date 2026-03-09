@@ -120,7 +120,8 @@ export function CompactTimelineExpanded({ task }: { task: ActiveTask }) {
       </div>
     </div>
   );
-}
+
+function CompactAction({ action }: { action: TaskAction }) {
   const [showOutput, setShowOutput] = useState(false);
 
   return (
