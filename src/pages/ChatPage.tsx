@@ -9,7 +9,7 @@ import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 import { TaskPanel } from "@/components/chat/TaskPanel";
 import { AgentIndicator } from "@/components/chat/AgentIndicator";
-import { CompactTimeline } from "@/components/chat/CompactTimeline";
+import { CompactTimeline, CompactTimelineExpanded } from "@/components/chat/CompactTimeline";
 
 // ── Types ──
 interface CodeAttachment {
