@@ -191,9 +191,15 @@ serve(async (req) => {
             result.error = body?.error?.message || `HTTP ${r.status}`;
           }
         } else if (provider === "google" || provider === "gemini") {
-          const r = await fetch(
-            `https://generativelanguage.googleapis.com/v1/models/${model_id}?key=${apiKey}`
+          // Try v1beta first (newer models like gemini-3.1-pro-preview), then v1
+          let r = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model_id}?key=${apiKey}`
           );
+          if (!r.ok) {
+            r = await fetch(
+              `https://generativelanguage.googleapis.com/v1/models/${model_id}?key=${apiKey}`
+            );
+          }
           if (r.ok) {
             result.success = true;
           } else {
