@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, KeyboardEvent } from "react";
 import {
   Send, Loader2, RotateCcw, ExternalLink,
-  Bot, FileCode, X, AlertTriangle, ListChecks
+  Bot, FileCode, X, AlertTriangle, ListChecks, Clock, Cpu
 } from "lucide-react";
 import { streamChat, subscribeToTasks, subscribeToCompletedTasks, type Msg, type ActiveTask, type StreamMeta } from "@/lib/chat-stream";
 import { supabase } from "@/integrations/supabase/client";
@@ -410,19 +410,28 @@ function ChatMessage({ msg, onRetry }: { msg: Msg; onRetry?: () => void }) {
 
 function TimelineToggle({ task }: { task: ActiveTask }) {
   const [open, setOpen] = useState(false);
+  const duration = task.completedAt
+    ? ((task.completedAt - task.startedAt) / 1000).toFixed(1)
+    : null;
 
   return (
     <div className="mt-2">
       <button
         onClick={() => setOpen(!open)}
         className={cn(
-          "ml-auto flex items-center gap-1.5 text-[10px] font-medium rounded-full px-2.5 py-1",
+          "flex items-center gap-1.5 text-[10px] font-medium rounded-full px-2.5 py-1",
           "transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]",
           open
             ? "bg-primary/10 text-primary border border-primary/20"
             : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
         )}
       >
+        <span className="flex items-center gap-1 font-mono text-[9px]">
+          <Clock className="h-2.5 w-2.5" />
+          {duration ? `${duration}s` : "—"}
+        </span>
+        <span className="font-mono text-[9px]">{task.actions.length} steps</span>
+        <span className="mx-0.5">·</span>
         <ListChecks className="h-3 w-3" />
         Progress timeline
       </button>
@@ -432,7 +441,7 @@ function TimelineToggle({ task }: { task: ActiveTask }) {
           open ? "max-h-[600px] opacity-100 mt-2" : "max-h-0 opacity-0 mt-0"
         )}
       >
-        <CompactTimeline task={task} />
+        <CompactTimelineExpanded task={task} />
       </div>
     </div>
   );
