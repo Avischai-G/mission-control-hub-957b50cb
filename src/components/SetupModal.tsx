@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ModelsTab } from "@/components/setup/ModelsTab";
 import { CredentialsTab } from "@/components/setup/CredentialsTab";
 import { ModelBudgetsTab } from "@/components/setup/ModelBudgetsTab";
+import { SetupGuideTab } from "@/components/setup/SetupGuideTab";
 
 interface SetupModalProps {
   open: boolean;
