@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ModelsTab } from "@/components/setup/ModelsTab";
 import { CredentialsTab } from "@/components/setup/CredentialsTab";
 import { ModelBudgetsTab } from "@/components/setup/ModelBudgetsTab";
+import { SetupGuideTab } from "@/components/setup/SetupGuideTab";
 
 interface SetupModalProps {
   open: boolean;
@@ -53,25 +54,31 @@ export function SetupModal({ open, onOpenChange }: SetupModalProps) {
 
         {/* Content */}
         <div className="h-[calc(100%-65px)] overflow-auto p-6">
-          <Tabs defaultValue="models" className="h-full flex flex-col">
+          <Tabs defaultValue="guide" className="h-full flex flex-col">
             <TabsList className="bg-secondary/50 border border-border w-fit">
-              <TabsTrigger value="models" className="font-mono text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                Models
+              <TabsTrigger value="guide" className="font-mono text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                Setup Guide
               </TabsTrigger>
               <TabsTrigger value="credentials" className="font-mono text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
                 Credentials
+              </TabsTrigger>
+              <TabsTrigger value="models" className="font-mono text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                Models
               </TabsTrigger>
               <TabsTrigger value="budgets" className="font-mono text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
                 Model Budgets
               </TabsTrigger>
             </TabsList>
-            <TabsContent value="models" className="flex-1 mt-6">
-              <ModelsTab />
+            <TabsContent value="guide" className="flex-1 mt-6 overflow-auto">
+              <SetupGuideTab />
             </TabsContent>
-            <TabsContent value="credentials" className="flex-1 mt-6">
+            <TabsContent value="credentials" className="flex-1 mt-6 overflow-auto">
               <CredentialsTab />
             </TabsContent>
-            <TabsContent value="budgets" className="flex-1 mt-6">
+            <TabsContent value="models" className="flex-1 mt-6 overflow-auto">
+              <ModelsTab />
+            </TabsContent>
+            <TabsContent value="budgets" className="flex-1 mt-6 overflow-auto">
               <ModelBudgetsTab />
             </TabsContent>
           </Tabs>
