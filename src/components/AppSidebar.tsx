@@ -1,9 +1,7 @@
 import {
   MessageSquare,
-  Brain,
   Bot,
   Clock,
-  Radio,
   FileText,
   Settings,
 } from "lucide-react";
@@ -24,21 +22,18 @@ import {
 
 const mainItems = [
   { title: "Chat", url: "/chat", icon: MessageSquare },
-  { title: "Global Memory", url: "/memory", icon: Brain },
   { title: "Agents", url: "/agents", icon: Bot },
   { title: "Cron Jobs", url: "/cron", icon: Clock },
-  { title: "Live Feed", url: "/feed", icon: Radio },
   { title: "Night Report", url: "/night-report", icon: FileText },
 ];
 
 interface AppSidebarProps {
-  onOpenSetup: () => void;
+  onOpenSetup: (page?: string) => void;
 }
 
 export function AppSidebar({ onOpenSetup }: AppSidebarProps) {
   const { state, setOpen } = useSidebar();
   const collapsed = state === "collapsed";
-  const location = useLocation();
 
   return (
     <Sidebar collapsible="icon" onClick={() => { if (collapsed) setOpen(true); }}>
@@ -52,12 +47,7 @@ export function AppSidebar({ onOpenSetup }: AppSidebarProps) {
               {mainItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild>
-                    <NavLink
-                      to={item.url}
-                      end
-                      className="hover:bg-sidebar-accent/80 transition-colors"
-                      activeClassName="bg-sidebar-accent text-primary font-medium"
-                    >
+                    <NavLink to={item.url} end className="hover:bg-sidebar-accent/80 transition-colors" activeClassName="bg-sidebar-accent text-primary font-medium">
                       <item.icon className="mr-2 h-4 w-4 shrink-0" />
                       {!collapsed && <span>{item.title}</span>}
                     </NavLink>
@@ -71,10 +61,7 @@ export function AppSidebar({ onOpenSetup }: AppSidebarProps) {
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton
-              onClick={onOpenSetup}
-              className="hover:bg-sidebar-accent/80 transition-colors cursor-pointer"
-            >
+            <SidebarMenuButton onClick={() => onOpenSetup()} className="hover:bg-sidebar-accent/80 transition-colors cursor-pointer">
               <Settings className="mr-2 h-4 w-4 shrink-0" />
               {!collapsed && <span>Setup</span>}
             </SidebarMenuButton>

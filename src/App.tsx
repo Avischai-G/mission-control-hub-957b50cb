@@ -6,10 +6,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { ThemeProvider } from "@/hooks/use-theme";
 import ChatPage from "@/pages/ChatPage";
-import GlobalMemoryPage from "@/pages/GlobalMemoryPage";
 import AgentsPage from "@/pages/AgentsPage";
 import CronJobsPage from "@/pages/CronJobsPage";
-import LiveFeedPage from "@/pages/LiveFeedPage";
 import NightReportPage from "@/pages/NightReportPage";
 import NotFound from "@/pages/NotFound";
 
@@ -26,11 +24,12 @@ const App = () => (
             <Routes>
               <Route path="/" element={<Navigate to="/chat" replace />} />
               <Route path="/chat" element={<ChatPage />} />
-              <Route path="/memory" element={<GlobalMemoryPage />} />
               <Route path="/agents" element={<AgentsPage />} />
               <Route path="/cron" element={<CronJobsPage />} />
-              <Route path="/feed" element={<LiveFeedPage />} />
               <Route path="/night-report" element={<NightReportPage />} />
+              {/* Redirect old routes to chat (feed/memory are now in Setup modal) */}
+              <Route path="/feed" element={<Navigate to="/chat" replace />} />
+              <Route path="/memory" element={<Navigate to="/chat" replace />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AppLayout>

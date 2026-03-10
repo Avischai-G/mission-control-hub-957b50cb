@@ -176,6 +176,53 @@ export type Database = {
           },
         ]
       }
+      api_usage_logs: {
+        Row: {
+          cost_estimate: number
+          created_at: string
+          credential_meta_id: string | null
+          id: string
+          model_id: string
+          provider: string
+          request_type: string
+          tokens_input: number
+          tokens_output: number
+          total_tokens: number
+        }
+        Insert: {
+          cost_estimate?: number
+          created_at?: string
+          credential_meta_id?: string | null
+          id?: string
+          model_id: string
+          provider: string
+          request_type?: string
+          tokens_input?: number
+          tokens_output?: number
+          total_tokens?: number
+        }
+        Update: {
+          cost_estimate?: number
+          created_at?: string
+          credential_meta_id?: string | null
+          id?: string
+          model_id?: string
+          provider?: string
+          request_type?: string
+          tokens_input?: number
+          tokens_output?: number
+          total_tokens?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_usage_logs_credential_meta_id_fkey"
+            columns: ["credential_meta_id"]
+            isOneToOne: false
+            referencedRelation: "credentials_meta"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
@@ -647,6 +694,69 @@ export type Database = {
           started_at?: string | null
           status?: string
           summary?: string | null
+        }
+        Relationships: []
+      }
+      provider_budgets: {
+        Row: {
+          budget_amount: number
+          created_at: string
+          id: string
+          period: string
+          provider: string
+          updated_at: string
+        }
+        Insert: {
+          budget_amount?: number
+          created_at?: string
+          id?: string
+          period?: string
+          provider: string
+          updated_at?: string
+        }
+        Update: {
+          budget_amount?: number
+          created_at?: string
+          id?: string
+          period?: string
+          provider?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      provider_models_catalog: {
+        Row: {
+          created_at: string
+          display_name: string
+          id: string
+          input_price_per_1m: number
+          is_available: boolean
+          last_updated: string
+          model_id: string
+          output_price_per_1m: number
+          provider: string
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          id?: string
+          input_price_per_1m?: number
+          is_available?: boolean
+          last_updated?: string
+          model_id: string
+          output_price_per_1m?: number
+          provider: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          id?: string
+          input_price_per_1m?: number
+          is_available?: boolean
+          last_updated?: string
+          model_id?: string
+          output_price_per_1m?: number
+          provider?: string
         }
         Relationships: []
       }
