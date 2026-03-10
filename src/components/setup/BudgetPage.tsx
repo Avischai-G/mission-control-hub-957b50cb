@@ -27,8 +27,8 @@ export function BudgetPage() {
   const fetch_ = async () => {
     const since = new Date(Date.now() - 8760 * 3600000).toISOString(); // load 1 year
     const [uRes, bRes] = await Promise.all([
-      supabase.from("api_usage_logs" as any).select("*").gte("created_at", since).order("created_at", { ascending: true }),
-      supabase.from("provider_budgets" as any).select("*"),
+      supabase.from("api_usage_logs" as any).select("*").gte("created_at", since).order("created_at", { ascending: true }) as any,
+      supabase.from("provider_budgets" as any).select("*") as any,
     ]);
     setUsage((uRes.data as UsageLog[]) || []);
     setBudgets((bRes.data as Budget[]) || []);
