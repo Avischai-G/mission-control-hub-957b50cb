@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Redirecting…</title>
+    <script>
+      (function () {
+        var routeAliases = { "/code-tools": "/tools" };
+        var knownRoutes = ["/chat", "/agents", "/tools", "/code-tools", "/cron", "/night-report", "/feed", "/memory"];
+        var path = window.location.pathname;
+        var search = window.location.search || "";
+        var matchedRoute = knownRoutes.find(function (route) {
+          return path === route || path.endsWith(route);
+        });
+
+        if (!matchedRoute) {
+          window.location.replace("/");
+          return;
+        }
+
+        var basePath = path.slice(0, path.length - matchedRoute.length) || "/";
+        var normalizedBasePath = basePath.endsWith("/") ? basePath : basePath + "/";
+        var targetRoute = routeAliases[matchedRoute] || matchedRoute;
+        window.location.replace(normalizedBasePath + "#" + targetRoute + search);
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Key, Trash2, Loader2, CheckCircle, XCircle, FlaskConical, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { callEdgeJson } from "@/lib/edge-functions";
 import { useToast } from "@/hooks/use-toast";
 import { PROVIDERS } from "@/lib/provider-config";
 
@@ -12,8 +13,6 @@ type Cred = {
   masked_value: string | null;
   last_verified_at: string | null;
 };
-
-const FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-credentials`;
 
 export function APIKeysPage() {
   const [creds, setCreds] = useState<Cred[]>([]);
@@ -33,45 +32,52 @@ export function APIKeysPage() {
   useEffect(() => { fetchCreds(); }, []);
 
   const callFn = async (body: Record<string, unknown>) => {
-    const resp = await fetch(FUNCTIONS_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
-      body: JSON.stringify(body),
-    });
-    return resp.json();
+    return callEdgeJson<Record<string, any>>("manage-credentials", body);
   };
 
   const testCred = async (id: string) => {
     setTesting(id);
-    const result = await callFn({ action: "test", credential_meta_id: id });
-    setTesting(null);
-    if (result.success) {
-      toast({ title: "✓ Valid", description: "Credential verified." });
-      fetchCreds();
-    } else {
-      toast({ title: "✗ Invalid", description: result.error, variant: "destructive" });
+    try {
+      const result = await callFn({ action: "test", credential_meta_id: id });
+      if (result.success) {
+        toast({ title: "✓ Valid", description: "Credential verified." });
+        fetchCreds();
+      } else {
+        toast({ title: "✗ Invalid", description: result.error, variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "✗ Invalid", description: e.message, variant: "destructive" });
     }
+    setTesting(null);
   };
 
   const deleteCred = async (id: string) => {
-    await callFn({ action: "unset", credential_meta_id: id });
-    await supabase.from("credentials_meta").delete().eq("id", id);
-    fetchCreds();
+    try {
+      await callFn({ action: "unset", credential_meta_id: id });
+      await supabase.from("credentials_meta").delete().eq("id", id);
+      fetchCreds();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   const updateKey = async (id: string) => {
     if (!updateValue.trim()) return;
     setSaving(true);
-    const masked = updateValue.length > 8 ? updateValue.slice(0, 4) + "••••••••" + updateValue.slice(-4) : "••••••••";
-    const result = await callFn({ action: "set", credential_meta_id: id, value: updateValue.trim() });
-    if (result.success) {
-      await supabase.from("credentials_meta").update({ masked_value: masked }).eq("id", id);
-      toast({ title: "Updated" });
-      setUpdatingId(null);
-      setUpdateValue("");
-      fetchCreds();
-    } else {
-      toast({ title: "Error", description: result.error, variant: "destructive" });
+    try {
+      const masked = updateValue.length > 8 ? updateValue.slice(0, 4) + "••••••••" + updateValue.slice(-4) : "••••••••";
+      const result = await callFn({ action: "set", credential_meta_id: id, value: updateValue.trim() });
+      if (result.success) {
+        await supabase.from("credentials_meta").update({ masked_value: masked }).eq("id", id);
+        toast({ title: "Updated" });
+        setUpdatingId(null);
+        setUpdateValue("");
+        fetchCreds();
+      } else {
+        toast({ title: "Error", description: result.error, variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
     }
     setSaving(false);
   };

@@ -104,6 +104,12 @@
 }
 
 @layer base {
+  html, body, #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
   * {
     @apply border-border;
   }
@@ -131,18 +137,12 @@
   }
 }
 
-/* Scrollbar styling */
+/* Hide all scrollbars globally but allow scrolling */
+* {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: hsl(var(--background));
-}
-::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground));
+  display: none; /* Chrome, Safari and Opera */
 }

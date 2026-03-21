@@ -1,7 +1,13 @@
 project_id = "kduaxliyxldpvsbeaonx"
 
+[auth]
+enable_anonymous_sign_ins = true
+
 [functions.chat]
-verify_jwt = false
+verify_jwt = true
 
 [functions.manage-credentials]
-verify_jwt = false
+verify_jwt = true
+
+[functions.manage-models]
+verify_jwt = true

@@ -4,8 +4,30 @@ import { supabase } from "@/integrations/supabase/client";
 import { PROVIDERS } from "@/lib/provider-config";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 
-type UsageLog = { provider: string; model_id: string; tokens_input: number; tokens_output: number; cost_estimate: number; created_at: string };
-type Budget = { id: string; provider: string; budget_amount: number; period: string };
+type UsageLog = {
+  provider: string;
+  model_id: string;
+  tokens_input: number;
+  tokens_output: number;
+  cost_estimate: number | string;
+  created_at: string;
+};
+
+type Budget = {
+  id: string;
+  provider: string;
+  budget_amount: number | string;
+  period: string;
+};
+
+type BudgetPeriod = "one_time" | "monthly";
+
+const DEFAULT_BUDGET_PERIOD: BudgetPeriod = "one_time";
+
+const PERIOD_OPTIONS: Array<{ value: BudgetPeriod; label: string }> = [
+  { value: "one_time", label: "One-time" },
+  { value: "monthly", label: "Monthly reset" },
+];
 
 const TIME_RANGES = [
   { label: "1h", hours: 1 },
@@ -16,31 +38,64 @@ const TIME_RANGES = [
   { label: "1y", hours: 8760 },
 ];
 
+function formatBudgetInput(value: number | string) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount.toString() : "";
+}
+
+function normalizeBudgetPeriod(value: string | null | undefined): BudgetPeriod {
+  return value === "monthly" ? "monthly" : DEFAULT_BUDGET_PERIOD;
+}
+
+function periodLabel(period: BudgetPeriod) {
+  return period === "monthly" ? "Monthly reset" : "One-time";
+}
+
 export function BudgetPage() {
   const [usage, setUsage] = useState<UsageLog[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [loading, setLoading] = useState(true);
   const [editBudget, setEditBudget] = useState<Record<string, string>>({});
+  const [editPeriod, setEditPeriod] = useState<Record<string, BudgetPeriod>>({});
   const [detailProvider, setDetailProvider] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState(TIME_RANGES[3]); // 7d default
 
   const fetch_ = async () => {
-    const since = new Date(Date.now() - 8760 * 3600000).toISOString(); // load 1 year
     const [uRes, bRes] = await Promise.all([
-      supabase.from("api_usage_logs" as any).select("*").gte("created_at", since).order("created_at", { ascending: true }) as any,
-      supabase.from("provider_budgets" as any).select("*") as any,
+      supabase.from("api_usage_logs").select("*").order("created_at", { ascending: true }),
+      supabase.from("provider_budgets").select("*"),
     ]);
-    setUsage((uRes.data as UsageLog[]) || []);
-    setBudgets((bRes.data as Budget[]) || []);
+
+    const usageRows = (uRes.data as UsageLog[] | null) || [];
+    const budgetRows = (bRes.data as Budget[] | null) || [];
+
+    setUsage(usageRows);
+    setBudgets(budgetRows);
+    setEditBudget(
+      Object.fromEntries(
+        budgetRows.map((budget) => [budget.provider, formatBudgetInput(budget.budget_amount)]),
+      ),
+    );
+    setEditPeriod(
+      Object.fromEntries(
+        budgetRows.map((budget) => [budget.provider, normalizeBudgetPeriod(budget.period)]),
+      ),
+    );
     setLoading(false);
   };
 
   useEffect(() => { fetch_(); }, []);
 
-  const providers = useMemo(() => {
-    const set = new Set(usage.map(u => u.provider));
-    return [...set];
-  }, [usage]);
+  const allProviders = useMemo(() => {
+    const knownProviders = PROVIDERS.map((provider) => provider.key);
+    const knownProviderSet = new Set(knownProviders);
+    const extraProviders = [...new Set([
+      ...usage.map((item) => item.provider),
+      ...budgets.map((item) => item.provider),
+    ])].filter((provider) => !knownProviderSet.has(provider));
+
+    return [...knownProviders, ...extraProviders];
+  }, [budgets, usage]);
 
   const getProviderUsage = (provider: string) => {
     const now = Date.now();
@@ -49,22 +104,34 @@ export function BudgetPage() {
   };
 
   const getProviderTotal = (provider: string) => {
-    // Monthly total for budget comparison
     const monthAgo = Date.now() - 30 * 24 * 3600000;
     return usage.filter(u => u.provider === provider && new Date(u.created_at).getTime() >= monthAgo)
       .reduce((sum, u) => sum + Number(u.cost_estimate), 0);
   };
 
+  const getProviderUsageForLimit = (provider: string, period: BudgetPeriod) => {
+    if (period === "monthly") return getProviderTotal(provider);
+    return usage
+      .filter((entry) => entry.provider === provider)
+      .reduce((sum, entry) => sum + Number(entry.cost_estimate), 0);
+  };
+
   const saveBudget = async (provider: string) => {
-    const amount = parseFloat(editBudget[provider] || "0");
-    if (!amount) return;
-    const existing = budgets.find(b => b.provider === provider);
-    if (existing) {
-      await supabase.from("provider_budgets" as any).update({ budget_amount: amount }).eq("id", existing.id);
-    } else {
-      await supabase.from("provider_budgets" as any).insert({ provider, budget_amount: amount });
-    }
-    setEditBudget(prev => ({ ...prev, [provider]: "" }));
+    const rawAmount = (editBudget[provider] || "").trim();
+    const amount = Number(rawAmount);
+    if (!rawAmount || !Number.isFinite(amount) || amount <= 0) return;
+
+    const existing = budgets.find((budget) => budget.provider === provider);
+    const period = editPeriod[provider] || normalizeBudgetPeriod(existing?.period);
+    await supabase.from("provider_budgets").upsert(
+      {
+        provider,
+        budget_amount: amount,
+        period,
+      },
+      { onConflict: "provider" },
+    );
+
     fetch_();
   };
 
@@ -97,14 +164,11 @@ export function BudgetPage() {
   if (detailProvider) {
     const provDef = PROVIDERS.find(p => p.key === detailProvider);
     const chartData = buildChartData(detailProvider);
-    const total = getProviderTotal(detailProvider);
+    const recentTotal = getProviderTotal(detailProvider);
     const budget = budgets.find(b => b.provider === detailProvider);
-    const remaining = budget ? Number(budget.budget_amount) - total : null;
-
-    // Forecast: simple linear extrapolation
-    const daysUsed = Math.min(30, timeRange.hours / 24);
-    const dailyRate = daysUsed > 0 ? total / daysUsed : 0;
-    const monthlyForecast = dailyRate * 30;
+    const currentPeriod = normalizeBudgetPeriod(editPeriod[detailProvider] || budget?.period);
+    const usedAgainstLimit = getProviderUsageForLimit(detailProvider, currentPeriod);
+    const remaining = budget ? Number(budget.budget_amount) - usedAgainstLimit : null;
 
     return (
       <div className="space-y-6">
@@ -116,10 +180,10 @@ export function BudgetPage() {
 
         {/* Stats row */}
         <div className="grid grid-cols-4 gap-3">
-          <StatCard label="Spent (30d)" value={`$${total.toFixed(4)}`} />
-          <StatCard label="Budget" value={budget ? `$${Number(budget.budget_amount).toFixed(2)}` : "Not set"} />
+          <StatCard label="Used" value={`$${usedAgainstLimit.toFixed(4)}`} />
+          <StatCard label="Limit" value={budget ? `$${Number(budget.budget_amount).toFixed(2)}` : "Not set"} />
           <StatCard label="Remaining" value={remaining !== null ? `$${remaining.toFixed(4)}` : "—"} color={remaining !== null && remaining < 0 ? "text-destructive" : undefined} />
-          <StatCard label="Forecast (30d)" value={`$${monthlyForecast.toFixed(4)}`} />
+          <StatCard label="Window" value={periodLabel(currentPeriod)} />
         </div>
 
         {/* Time range selector */}
@@ -136,6 +200,27 @@ export function BudgetPage() {
         </div>
 
         {/* Cost chart */}
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card p-4">
+          <div>
+            <p className="text-[10px] font-mono uppercase text-muted-foreground">Recent spend (30d)</p>
+            <p className="mt-1 text-lg font-semibold font-mono text-foreground">${recentTotal.toFixed(4)}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] font-mono uppercase text-muted-foreground" htmlFor="detail-budget-period">Limit Type</label>
+            <select
+              id="detail-budget-period"
+              aria-label="Provider limit period"
+              value={currentPeriod}
+              onChange={(event) => setEditPeriod((current) => ({ ...current, [detailProvider]: event.target.value as BudgetPeriod }))}
+              className="rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+            >
+              {PERIOD_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         {chartData.length > 0 ? (
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-card p-4">
@@ -173,77 +258,106 @@ export function BudgetPage() {
     );
   }
 
-  // Overview
-  const allProviders = [...new Set([...providers, ...budgets.map(b => b.provider)])];
-
   return (
     <div className="space-y-6">
-      <p className="text-sm text-muted-foreground">Provider budgets and usage tracking. Set a monthly budget per provider.</p>
-
-      {allProviders.length === 0 && providers.length === 0 ? (
-        <div className="flex flex-col items-center justify-center p-16 text-center">
-          <BarChart3 className="h-10 w-10 text-muted-foreground/50 mb-3" />
-          <p className="text-sm text-muted-foreground">No usage data yet.</p>
-          <p className="text-xs text-muted-foreground/70 mt-1">Usage will appear as you send messages through configured providers.</p>
+      <p className="text-sm text-muted-foreground">Provider spending limits and usage tracking. Set an optional one-time or recurring monthly limit per provider.</p>
+      {usage.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border bg-secondary/10 p-4">
+          <div className="flex items-center gap-3">
+            <BarChart3 className="h-5 w-5 text-muted-foreground" />
+            <div>
+              <p className="text-sm text-foreground">No usage data yet.</p>
+              <p className="text-xs text-muted-foreground mt-1">You can still set budgets now. Usage will appear after you send messages through a provider.</p>
+            </div>
+          </div>
         </div>
-      ) : (
-        <div className="space-y-3">
-          {(allProviders.length > 0 ? allProviders : PROVIDERS.map(p => p.key)).map(providerKey => {
-            const provDef = PROVIDERS.find(p => p.key === providerKey);
-            const total = getProviderTotal(providerKey);
-            const budget = budgets.find(b => b.provider === providerKey);
-            const pct = budget && Number(budget.budget_amount) > 0 ? Math.min((total / Number(budget.budget_amount)) * 100, 100) : 0;
+      ) : null}
 
-            return (
-              <div key={providerKey} className="rounded-lg border border-border bg-card p-4">
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="text-lg">{provDef?.icon || "📦"}</span>
-                  <span className="text-sm font-medium text-foreground flex-1">{provDef?.name || providerKey}</span>
-                  <button
-                    onClick={() => setDetailProvider(providerKey)}
-                    className="rounded-md bg-secondary px-2.5 py-1 text-[11px] font-medium text-secondary-foreground hover:bg-secondary/80 transition-colors flex items-center gap-1"
-                  >
-                    <TrendingUp className="h-3 w-3" /> Details
-                  </button>
-                </div>
+      <div className="space-y-3">
+        {allProviders.map((providerKey) => {
+          const provDef = PROVIDERS.find((provider) => provider.key === providerKey);
+          const providerLabel = provDef?.name || providerKey;
+          const budget = budgets.find((item) => item.provider === providerKey);
+          const currentPeriod = editPeriod[providerKey] || normalizeBudgetPeriod(budget?.period);
+          const usedAgainstLimit = getProviderUsageForLimit(providerKey, currentPeriod);
+          const recentTotal = getProviderTotal(providerKey);
+          const pct = budget && Number(budget.budget_amount) > 0 ? Math.min((usedAgainstLimit / Number(budget.budget_amount)) * 100, 100) : 0;
+          const draftBudget = editBudget[providerKey] || "";
+          const parsedDraftBudget = Number(draftBudget);
+          const canSaveBudget = draftBudget.trim().length > 0 && Number.isFinite(parsedDraftBudget) && parsedDraftBudget > 0;
 
-                {/* Budget bar */}
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${pct > 90 ? "bg-destructive" : pct > 70 ? "bg-warning" : "bg-primary"}`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                  <span className="text-xs font-mono text-muted-foreground w-16 text-right">
-                    {budget ? `${Math.round(pct)}%` : "—"}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Spent: <span className="text-foreground font-mono">${total.toFixed(4)}</span></span>
-                  {budget ? (
-                    <span>Budget: <span className="text-foreground font-mono">${Number(budget.budget_amount).toFixed(2)}</span>/mo</span>
-                  ) : (
-                    <div className="flex items-center gap-1">
-                      <DollarSign className="h-3 w-3" />
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="Set budget"
-                        value={editBudget[providerKey] || ""}
-                        onChange={e => setEditBudget(prev => ({ ...prev, [providerKey]: e.target.value }))}
-                        className="w-20 rounded border border-border bg-background px-2 py-0.5 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
-                      />
-                      <button onClick={() => saveBudget(providerKey)} className="rounded bg-primary px-2 py-0.5 text-[10px] text-primary-foreground">Set</button>
-                    </div>
-                  )}
-                </div>
+          return (
+            <div key={providerKey} className="rounded-lg border border-border bg-card p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-lg">{provDef?.icon || "📦"}</span>
+                <span className="text-sm font-medium text-foreground flex-1">{providerLabel}</span>
+                <button
+                  onClick={() => setDetailProvider(providerKey)}
+                  className="rounded-md bg-secondary px-2.5 py-1 text-[11px] font-medium text-secondary-foreground hover:bg-secondary/80 transition-colors flex items-center gap-1"
+                >
+                  <TrendingUp className="h-3 w-3" /> Details
+                </button>
               </div>
-            );
-          })}
-        </div>
-      )}
+
+              <div className="flex items-center gap-3 mb-2">
+                <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${pct > 90 ? "bg-destructive" : pct > 70 ? "bg-warning" : "bg-primary"}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <span className="text-xs font-mono text-muted-foreground w-16 text-right">
+                  {budget ? `${Math.round(pct)}%` : "—"}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span>Used: <span className="text-foreground font-mono">${usedAgainstLimit.toFixed(4)}</span></span>
+                <span>
+                  Limit:{" "}
+                  <span className="text-foreground font-mono">
+                    {budget ? `$${Number(budget.budget_amount).toFixed(2)}` : "Not set"}
+                  </span>
+                </span>
+                <span>Recent 30d: <span className="text-foreground font-mono">${recentTotal.toFixed(4)}</span></span>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
+                <input
+                  aria-label={`${providerLabel} limit amount`}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Set limit"
+                  value={draftBudget}
+                  onChange={(event) => setEditBudget((current) => ({ ...current, [providerKey]: event.target.value }))}
+                  className="w-28 rounded border border-border bg-background px-2 py-1 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+                <select
+                  aria-label={`${providerLabel} limit period`}
+                  value={currentPeriod}
+                  onChange={(event) => setEditPeriod((current) => ({ ...current, [providerKey]: event.target.value as BudgetPeriod }))}
+                  className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                >
+                  {PERIOD_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <button
+                  aria-label={`Save ${providerLabel} limit`}
+                  disabled={!canSaveBudget}
+                  onClick={() => saveBudget(providerKey)}
+                  className="rounded bg-primary px-2.5 py-1 text-[10px] text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {budget ? "Update" : "Set"}
+                </button>
+                <span className="text-[11px] text-muted-foreground">{periodLabel(currentPeriod)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

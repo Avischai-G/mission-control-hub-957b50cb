@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { Database, Plus, Trash2, Loader2, CheckCircle, XCircle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { callEdgeJson } from "@/lib/edge-functions";
+import { deleteManagedModel, setManagedModelActive, upsertManagedModel } from "@/lib/model-registry";
 import { useToast } from "@/hooks/use-toast";
 
 type Model = {
@@ -19,8 +21,6 @@ type Cred = {
   provider: string;
   is_set: boolean;
 };
-
-const FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-credentials`;
 
 export function ModelsTab() {
   const [models, setModels] = useState<Model[]>([]);
@@ -57,19 +57,11 @@ export function ModelsTab() {
     setVerified(null);
     setVerifyError("");
     try {
-      const resp = await fetch(FUNCTIONS_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: JSON.stringify({
+      const result = await callEdgeJson<Record<string, any>>("manage-credentials", {
           action: "verify_model",
           credential_meta_id: form.credential_id,
           model_id: form.model_id,
-        }),
       });
-      const result = await resp.json();
       setVerified(result.success);
       if (!result.success) setVerifyError(result.error || "Verification failed");
     } catch (e: any) {
@@ -87,33 +79,53 @@ export function ModelsTab() {
     if (!form.model_id || !form.credential_id || !selectedCred) return;
 
     const displayName = form.display_name || form.model_id;
-    const { error } = await supabase.from("model_registry").insert({
-      model_id: form.model_id,
-      provider: selectedCred.provider,
-      display_name: displayName,
-      model_type: form.model_type,
-      config: { credential_id: form.credential_id },
-    });
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      await upsertManagedModel({
+        model_id: form.model_id,
+        provider: selectedCred.provider,
+        display_name: displayName,
+        model_type: form.model_type,
+        config: { credential_id: form.credential_id },
+      });
       setForm({ model_id: "", display_name: "", model_type: "chat", credential_id: "" });
       setVerified(null);
       setVerifyError("");
       setAdding(false);
       fetchData();
       toast({ title: "Model added", description: `${displayName} is ready to use.` });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to save model.",
+        variant: "destructive",
+      });
     }
   };
 
   const deleteModel = async (id: string) => {
-    await supabase.from("model_registry").delete().eq("id", id);
-    fetchData();
+    try {
+      await deleteManagedModel(id);
+      fetchData();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete model.",
+        variant: "destructive",
+      });
+    }
   };
 
   const toggleActive = async (id: string, current: boolean) => {
-    await supabase.from("model_registry").update({ is_active: !current }).eq("id", id);
-    fetchData();
+    try {
+      await setManagedModelActive(id, !current);
+      fetchData();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update model.",
+        variant: "destructive",
+      });
+    }
   };
 
   const inputCls = "rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50";

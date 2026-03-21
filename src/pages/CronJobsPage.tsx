@@ -30,6 +30,27 @@ type CronJobRun = {
   result: Record<string, any> | null;
 };
 
+type LocalRuntimeServiceStatus = {
+  healthy: boolean;
+  status: string;
+  message: string;
+};
+
+type LocalRuntimeStatus = {
+  checked_at: string;
+  healthy: boolean;
+  interval_seconds: number;
+  last_action: string;
+  restart_count: number;
+  frontend: LocalRuntimeServiceStatus;
+  functions: LocalRuntimeServiceStatus;
+  logs: {
+    watchdog: string;
+    frontend: string;
+    functions: string;
+  };
+};
+
 const SCHEDULE_PRESETS = [
   { label: "Every 5 min", cron: "*/5 * * * *", interval: "5m" },
   { label: "Every 15 min", cron: "*/15 * * * *", interval: "15m" },
@@ -63,6 +84,13 @@ function timeAgo(ts: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+function formatInterval(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${seconds}s`;
+}
+
 // ══════════════════════════════════════════════
 // CronJobsPage — OpenClaw-style scheduler UI
 // ══════════════════════════════════════════════
@@ -73,6 +101,8 @@ export default function CronJobsPage() {
   const [expandedJob, setExpandedJob] = useState<string | null>(null);
   const [runs, setRuns] = useState<Record<string, CronJobRun[]>>({});
   const [runningManual, setRunningManual] = useState<string | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<LocalRuntimeStatus | null>(null);
+  const [runtimeStatusLoading, setRuntimeStatusLoading] = useState(true);
   const { toast } = useToast();
 
   const fetchJobs = useCallback(async () => {
@@ -84,7 +114,37 @@ export default function CronJobsPage() {
     setLoading(false);
   }, []);
 
+  const fetchRuntimeStatus = useCallback(async () => {
+    try {
+      const response = await fetch(`/runtime/watchdog-status.json?t=${Date.now()}`, {
+        cache: "no-store",
+      });
+
+      if (response.status === 404) {
+        setRuntimeStatus(null);
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(`Watchdog status request failed with ${response.status}`);
+      }
+
+      const payload = (await response.json()) as LocalRuntimeStatus;
+      setRuntimeStatus(payload);
+    } catch (error) {
+      console.error("Failed to fetch runtime watchdog status", error);
+      setRuntimeStatus(null);
+    } finally {
+      setRuntimeStatusLoading(false);
+    }
+  }, []);
+
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
+  useEffect(() => {
+    fetchRuntimeStatus();
+    const intervalId = window.setInterval(fetchRuntimeStatus, 30000);
+    return () => window.clearInterval(intervalId);
+  }, [fetchRuntimeStatus]);
 
   const fetchRuns = async (jobId: string) => {
     const { data } = await supabase
@@ -154,7 +214,7 @@ export default function CronJobsPage() {
             Cron Jobs
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Schedule recurring tasks. Create jobs here or via chat — say <span className="font-mono text-xs bg-secondary px-1.5 py-0.5 rounded">"run X every hour"</span>.
+            AI cron jobs run recurring agent work inside your local app backend. App uptime is handled by the local watchdog below.
           </p>
         </div>
         <button
@@ -165,6 +225,12 @@ export default function CronJobsPage() {
           New Job
         </button>
       </div>
+
+      <LocalRuntimeCard
+        status={runtimeStatus}
+        loading={runtimeStatusLoading}
+        onRefresh={fetchRuntimeStatus}
+      />
 
       {/* Jobs List */}
       {loading ? (
@@ -202,6 +268,132 @@ export default function CronJobsPage() {
   );
 }
 
+function LocalRuntimeCard({
+  status,
+  loading,
+  onRefresh,
+}: {
+  status: LocalRuntimeStatus | null;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  const watchdogInterval = status ? formatInterval(status.interval_seconds) : "5m";
+  const checkedAt = status?.checked_at ? new Date(status.checked_at).toLocaleString() : "Unavailable";
+  const summaryLabel = status ? (status.healthy ? "Healthy" : "Recovering") : "Not connected";
+  const summaryTone = status
+    ? status.healthy
+      ? "text-emerald-600 bg-emerald-500/10"
+      : "text-amber-600 bg-amber-500/10"
+    : "text-muted-foreground bg-secondary/70";
+
+  return (
+    <section className="rounded-2xl border border-border bg-card/80 p-5 shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.22em] text-muted-foreground">Local Watchdog</h2>
+            <span className={cn("rounded-full px-2 py-1 text-[10px] font-mono uppercase tracking-[0.18em]", summaryTone)}>
+              {summaryLabel}
+            </span>
+          </div>
+          <p className="max-w-2xl text-sm text-foreground">
+            This watchdog runs locally every {watchdogInterval}, checks the frontend and Edge Functions gateway, and restarts the app with the canonical launcher if either one is unhealthy.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Use the AI cron jobs below for analysis, summaries, and recurring agent tasks. Keep operational recovery deterministic here.
+          </p>
+        </div>
+        <button
+          onClick={onRefresh}
+          className="inline-flex items-center gap-2 self-start rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <RotateCcw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+          Refresh status
+        </button>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        <RuntimeServiceCard
+          title="Frontend"
+          loading={loading}
+          service={status?.frontend || null}
+          fallbackMessage="Waiting for watchdog status from the local launcher."
+        />
+        <RuntimeServiceCard
+          title="Functions gateway"
+          loading={loading}
+          service={status?.functions || null}
+          fallbackMessage="Waiting for watchdog status from the local launcher."
+        />
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+        <div className="rounded-xl border border-border/70 bg-secondary/20 p-4">
+          <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">Last Action</div>
+          <p className="mt-2 text-sm text-foreground">
+            {status?.last_action || "Run the canonical launcher once to start the watchdog and publish live status here."}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <span>Last check: {checkedAt}</span>
+            <span>Restart count: {status?.restart_count ?? 0}</span>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/70 bg-secondary/20 p-4">
+          <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">Log Files</div>
+          <div className="mt-2 space-y-1.5 text-xs text-muted-foreground">
+            <p className="font-mono text-[11px] text-foreground">{status?.logs.watchdog || "logs/app-watchdog.log"}</p>
+            <p className="font-mono text-[11px] text-foreground">{status?.logs.frontend || "logs/app-frontend.log"}</p>
+            <p className="font-mono text-[11px] text-foreground">{status?.logs.functions || "logs/app-backend.log"}</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RuntimeServiceCard({
+  title,
+  service,
+  loading,
+  fallbackMessage,
+}: {
+  title: string;
+  service: LocalRuntimeServiceStatus | null;
+  loading: boolean;
+  fallbackMessage: string;
+}) {
+  const tone = service
+    ? service.healthy
+      ? "border-emerald-500/30 bg-emerald-500/5"
+      : "border-amber-500/30 bg-amber-500/5"
+    : "border-border/70 bg-secondary/20";
+  const badgeTone = service
+    ? service.healthy
+      ? "text-emerald-600 bg-emerald-500/10"
+      : "text-amber-600 bg-amber-500/10"
+    : "text-muted-foreground bg-secondary/70";
+
+  return (
+    <div className={cn("rounded-xl border p-4", tone)}>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-medium text-foreground">{title}</div>
+          <div className="mt-1 text-[10px] font-mono uppercase tracking-[0.18em] text-muted-foreground">
+            {service?.status || (loading ? "loading" : "status unavailable")}
+          </div>
+        </div>
+        <span className={cn("rounded-full px-2 py-1 text-[10px] font-mono uppercase tracking-[0.18em]", badgeTone)}>
+          {service ? (service.healthy ? "OK" : "Restarting") : loading ? "Loading" : "Unavailable"}
+        </span>
+      </div>
+      <p className="mt-3 text-sm text-muted-foreground">
+        {service?.message || fallbackMessage}
+      </p>
+    </div>
+  );
+}
+
 // ── Empty State ──
 function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
@@ -211,7 +403,9 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       </div>
       <h3 className="text-lg font-semibold text-foreground mb-1">No cron jobs yet</h3>
       <p className="text-sm text-muted-foreground max-w-md mb-4">
-        Schedule recurring agent tasks. Create one here or tell the chat:
+        Schedule recurring AI work here. Keep restarts and health checks in the local watchdog above.
+        <br />
+        Create one here or tell the chat:
         <br />
         <span className="font-mono text-xs text-primary">"Summarize my emails every morning at 9 AM"</span>
       </p>
@@ -421,7 +615,7 @@ function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 className="text-lg font-semibold text-foreground">New Cron Job</h2>
+          <h2 className="text-lg font-semibold text-foreground">New AI Cron Job</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
             <X className="h-5 w-5" />
           </button>
@@ -447,10 +641,13 @@ function CreateJobModal({ onClose, onCreated }: { onClose: () => void; onCreated
             <textarea
               value={prompt}
               onChange={e => setPrompt(e.target.value)}
-              placeholder="e.g. Summarize overnight emails and news, deliver a brief report."
+              placeholder="e.g. Review the knowledge base and agent setup, then write a concise prioritized improvement brief."
               rows={3}
               className="w-full rounded-lg border border-border bg-secondary/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none"
             />
+            <p className="mt-1.5 text-[10px] text-muted-foreground">
+              Use this for AI analysis or summaries. The local watchdog already handles frontend/functions uptime.
+            </p>
           </div>
 
           {/* Schedule */}

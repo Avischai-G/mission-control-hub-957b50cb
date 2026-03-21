@@ -1,15 +1,26 @@
 import { Loader2, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ContextIndicatorPill } from "@/components/context/ContextIndicatorPill";
 
 /**
  * Small indicator in the top-right showing an agent is working.
  * Appears before the plan/timeline is ready, then morphs away.
  */
-export function AgentIndicator({ visible, agentName }: { visible: boolean; agentName?: string }) {
+export function AgentIndicator({
+  visible,
+  agentName,
+  estimatedUsedTokens,
+  contextWindowTokens,
+}: {
+  visible: boolean;
+  agentName?: string;
+  estimatedUsedTokens?: number | null;
+  contextWindowTokens?: number | null;
+}) {
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-2 px-3 py-1.5 rounded-full",
+        "inline-flex items-center gap-2 rounded-full px-3 py-1.5",
         "bg-accent/10 border border-accent/20",
         "transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]",
         visible
@@ -24,6 +35,13 @@ export function AgentIndicator({ visible, agentName }: { visible: boolean; agent
       <span className="text-[10px] font-medium text-foreground">
         {agentName || "Agent"} working…
       </span>
+      {estimatedUsedTokens && contextWindowTokens ? (
+        <ContextIndicatorPill
+          usedTokens={estimatedUsedTokens}
+          windowTokens={contextWindowTokens}
+          className="border-accent/20 bg-background/50"
+        />
+      ) : null}
     </div>
   );
 }

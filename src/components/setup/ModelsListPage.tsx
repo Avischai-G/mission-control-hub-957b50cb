@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Database, Loader2, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { deleteManagedModel, setManagedModelActive } from "@/lib/model-registry";
 import { PROVIDERS } from "@/lib/provider-config";
 
 type Model = {
@@ -10,6 +11,8 @@ type Model = {
   display_name: string;
   model_type: string;
   is_active: boolean;
+  context_window_tokens: number | null;
+  default_output_tokens: number | null;
 };
 
 export function ModelsListPage() {
@@ -25,12 +28,12 @@ export function ModelsListPage() {
   useEffect(() => { fetch_(); }, []);
 
   const toggleActive = async (id: string, current: boolean) => {
-    await supabase.from("model_registry").update({ is_active: !current }).eq("id", id);
+    await setManagedModelActive(id, !current);
     fetch_();
   };
 
   const deleteModel = async (id: string) => {
-    await supabase.from("model_registry").delete().eq("id", id);
+    await deleteManagedModel(id);
     fetch_();
   };
 
@@ -70,6 +73,9 @@ export function ModelsListPage() {
                   <span className="font-mono text-xs text-foreground flex-1">{m.model_id}</span>
                   <span className="text-muted-foreground text-xs">{m.display_name}</span>
                   <span className="text-muted-foreground text-[10px] font-mono">{m.model_type}</span>
+                  <span className="text-muted-foreground text-[10px] font-mono">
+                    {m.context_window_tokens ? `${Math.round(m.context_window_tokens / 1000)}k ctx` : "ctx auto"}
+                  </span>
                   <button
                     onClick={() => toggleActive(m.id, m.is_active)}
                     className={`rounded px-2 py-0.5 text-[10px] font-mono transition-colors ${m.is_active ? 'bg-primary/20 text-primary' : 'bg-secondary text-muted-foreground'}`}

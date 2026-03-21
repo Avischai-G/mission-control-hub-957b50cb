@@ -37,7 +37,7 @@ export function TaskPanel({ tasks, visible }: { tasks: ActiveTask[]; visible: bo
   return (
     <div
       className={cn(
-        "shrink-0 relative overflow-visible",
+        "shrink-0 relative overflow-hidden",
         "transition-[width,opacity] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]",
         visible ? "w-72 opacity-100" : "w-0 opacity-0"
       )}
@@ -166,7 +166,7 @@ function TimelineAction({ action }: { action: TaskAction }) {
       <span className="text-[9px] font-mono text-muted-foreground">{action.agent}</span>
 
       {expanded && action.output && (
-        <pre className="text-[9px] font-mono bg-muted/50 rounded-md p-2 mt-1 overflow-x-auto text-muted-foreground border border-border/30 max-h-20 overflow-y-auto animate-in fade-in duration-200">
+        <pre className="mt-1 max-h-20 overflow-y-auto overflow-x-hidden rounded-md border border-border/30 bg-muted/50 p-2 text-[9px] font-mono text-muted-foreground whitespace-pre-wrap break-words animate-in fade-in duration-200">
           {action.output}
         </pre>
       )}

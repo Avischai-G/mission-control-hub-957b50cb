@@ -1,3 +1,6 @@
+import type { LocalArtifact } from "@/lib/local-artifacts";
+import { getAccessToken } from "@/lib/auth-session";
+
 export type Msg = {
   role: "user" | "assistant";
   content: string;
@@ -11,12 +14,18 @@ export type StreamMeta = {
   agent?: string;
   agentName?: string;
   model?: string;
+  conversationId?: string;
+  conversationKind?: "random" | "topic";
+  contextWindowTokens?: number;
+  estimatedUsedTokens?: number;
+  defaultOutputTokens?: number;
   taskId?: string;
   category?: string;
   status?: string;
   url?: string;
   error?: string;
   actions?: TaskAction[];
+  artifact?: LocalArtifact;
 };
 
 export type TaskAction = {
@@ -38,6 +47,7 @@ export type ActiveTask = {
   model?: string;
   startedAt: number;
   completedAt?: number;
+  artifact?: LocalArtifact;
 };
 
 type TaskListener = (tasks: ActiveTask[]) => void;
@@ -72,6 +82,7 @@ function upsertTask(meta: StreamMeta) {
     if (meta.error) existing.error = meta.error;
     if (meta.agentName) existing.agentName = meta.agentName;
     if (meta.model) existing.model = meta.model;
+    if (meta.artifact) existing.artifact = meta.artifact;
 
     if (meta.status === "done" || meta.status === "failed") {
       existing.completedAt = Date.now();
@@ -93,6 +104,7 @@ function upsertTask(meta: StreamMeta) {
       error: meta.error,
       agentName: meta.agentName,
       model: meta.model,
+      artifact: meta.artifact,
       startedAt: Date.now(),
     });
   }
@@ -113,24 +125,31 @@ const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
 
 export async function streamChat({
   messages,
+  conversationId,
   onDelta,
   onDone,
   onMeta,
   onError,
 }: {
   messages: Msg[];
+  conversationId?: string | null;
   onDelta: (deltaText: string) => void;
   onDone: () => void;
   onMeta?: (meta: StreamMeta) => void;
   onError?: (error: string) => void;
 }) {
+  const accessToken = await getAccessToken();
   const resp = await fetch(CHAT_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ messages: messages.map(m => ({ role: m.role, content: m.content })) }),
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+    }),
   });
 
   if (!resp.ok || !resp.body) {

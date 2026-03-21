@@ -70,6 +70,7 @@ export type Database = {
           max_output_tokens: number | null
           max_runtime_ms: number | null
           max_tool_calls_per_task: number | null
+          owner_user_id: string | null
           policy_yaml: string | null
           tool_argument_schema: Json | null
           updated_at: string
@@ -88,6 +89,7 @@ export type Database = {
           max_output_tokens?: number | null
           max_runtime_ms?: number | null
           max_tool_calls_per_task?: number | null
+          owner_user_id?: string | null
           policy_yaml?: string | null
           tool_argument_schema?: Json | null
           updated_at?: string
@@ -106,6 +108,7 @@ export type Database = {
           max_output_tokens?: number | null
           max_runtime_ms?: number | null
           max_tool_calls_per_task?: number | null
+          owner_user_id?: string | null
           policy_yaml?: string | null
           tool_argument_schema?: Json | null
           updated_at?: string
@@ -132,6 +135,7 @@ export type Database = {
           is_active: boolean
           model: string | null
           name: string
+          owner_user_id: string | null
           purpose: string
           role: string
           updated_at: string
@@ -147,6 +151,7 @@ export type Database = {
           is_active?: boolean
           model?: string | null
           name: string
+          owner_user_id?: string | null
           purpose: string
           role: string
           updated_at?: string
@@ -162,6 +167,7 @@ export type Database = {
           is_active?: boolean
           model?: string | null
           name?: string
+          owner_user_id?: string | null
           purpose?: string
           role?: string
           updated_at?: string
@@ -266,31 +272,44 @@ export type Database = {
         Row: {
           agent_id: string | null
           content: string
+          conversation_id: string | null
           created_at: string
           id: string
           metadata: Json | null
+          owner_user_id: string | null
           role: string
           task_id: string | null
         }
         Insert: {
           agent_id?: string | null
           content: string
+          conversation_id?: string | null
           created_at?: string
           id?: string
           metadata?: Json | null
+          owner_user_id?: string | null
           role: string
           task_id?: string | null
         }
         Update: {
           agent_id?: string | null
           content?: string
+          conversation_id?: string | null
           created_at?: string
           id?: string
           metadata?: Json | null
+          owner_user_id?: string | null
           role?: string
           task_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "chat_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "chat_messages_task_id_fkey"
             columns: ["task_id"]
@@ -299,6 +318,128 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      code_tool_catalog: {
+        Row: {
+          agent_id: string
+          classification_reason: string | null
+          created_at: string
+          execution_mode: string
+          folder_path: string
+          metadata: Json
+          sort_order: number
+          summary: string
+          tool_name: string
+          updated_at: string
+        }
+        Insert: {
+          agent_id: string
+          classification_reason?: string | null
+          created_at?: string
+          execution_mode?: string
+          folder_path?: string
+          metadata?: Json
+          sort_order?: number
+          summary?: string
+          tool_name: string
+          updated_at?: string
+        }
+        Update: {
+          agent_id?: string
+          classification_reason?: string | null
+          created_at?: string
+          execution_mode?: string
+          folder_path?: string
+          metadata?: Json
+          sort_order?: number
+          summary?: string
+          tool_name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "code_tool_catalog_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: true
+            referencedRelation: "agents"
+            referencedColumns: ["agent_id"]
+          },
+        ]
+      }
+      code_tool_folder_docs: {
+        Row: {
+          child_folder_count: number
+          created_at: string
+          depth: number
+          folder_name: string
+          folder_path: string
+          parent_path: string | null
+          readme_content: string
+          readme_title: string
+          tool_count: number
+          updated_at: string
+        }
+        Insert: {
+          child_folder_count?: number
+          created_at?: string
+          depth?: number
+          folder_name: string
+          folder_path: string
+          parent_path?: string | null
+          readme_content: string
+          readme_title: string
+          tool_count?: number
+          updated_at?: string
+        }
+        Update: {
+          child_folder_count?: number
+          created_at?: string
+          depth?: number
+          folder_name?: string
+          folder_path?: string
+          parent_path?: string | null
+          readme_content?: string
+          readme_title?: string
+          tool_count?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      conversations: {
+        Row: {
+          archived_at: string | null
+          created_at: string
+          id: string
+          kind: string
+          last_message_at: string
+          owner_user_id: string | null
+          title: string
+          topic_key: string | null
+          updated_at: string
+        }
+        Insert: {
+          archived_at?: string | null
+          created_at?: string
+          id?: string
+          kind: string
+          last_message_at?: string
+          owner_user_id?: string | null
+          title: string
+          topic_key?: string | null
+          updated_at?: string
+        }
+        Update: {
+          archived_at?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          last_message_at?: string
+          owner_user_id?: string | null
+          title?: string
+          topic_key?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       credential_values: {
         Row: {
@@ -416,37 +557,55 @@ export type Database = {
         Row: {
           config: Json | null
           created_at: string
+          duration_minutes: number | null
           function_name: string
           id: string
           is_active: boolean
           last_run_at: string | null
           name: string
           next_run_at: string | null
+          owner_user_id: string | null
+          recurrence_rule: string | null
           schedule: string
+          schedule_mode: string | null
+          starts_at: string | null
+          timezone: string | null
           updated_at: string
         }
         Insert: {
           config?: Json | null
           created_at?: string
+          duration_minutes?: number | null
           function_name: string
           id?: string
           is_active?: boolean
           last_run_at?: string | null
           name: string
           next_run_at?: string | null
+          owner_user_id?: string | null
+          recurrence_rule?: string | null
           schedule: string
+          schedule_mode?: string | null
+          starts_at?: string | null
+          timezone?: string | null
           updated_at?: string
         }
         Update: {
           config?: Json | null
           created_at?: string
+          duration_minutes?: number | null
           function_name?: string
           id?: string
           is_active?: boolean
           last_run_at?: string | null
           name?: string
           next_run_at?: string | null
+          owner_user_id?: string | null
+          recurrence_rule?: string | null
           schedule?: string
+          schedule_mode?: string | null
+          starts_at?: string | null
+          timezone?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -613,34 +772,43 @@ export type Database = {
       model_registry: {
         Row: {
           config: Json | null
+          context_window_tokens: number | null
           created_at: string
+          default_output_tokens: number | null
           display_name: string
           id: string
           is_active: boolean
           model_id: string
           model_type: string
+          owner_user_id: string | null
           provider: string
           updated_at: string
         }
         Insert: {
           config?: Json | null
+          context_window_tokens?: number | null
           created_at?: string
+          default_output_tokens?: number | null
           display_name: string
           id?: string
           is_active?: boolean
           model_id: string
           model_type?: string
+          owner_user_id?: string | null
           provider: string
           updated_at?: string
         }
         Update: {
           config?: Json | null
+          context_window_tokens?: number | null
           created_at?: string
+          default_output_tokens?: number | null
           display_name?: string
           id?: string
           is_active?: boolean
           model_id?: string
           model_type?: string
+          owner_user_id?: string | null
           provider?: string
           updated_at?: string
         }
@@ -831,12 +999,14 @@ export type Database = {
       tasks: {
         Row: {
           assigned_agent_id: string | null
+          conversation_id: string | null
           constraints: Json | null
           context_packet: Json | null
           created_at: string
           goal: string | null
           id: string
           idempotency_key: string | null
+          owner_user_id: string | null
           result: Json | null
           status: Database["public"]["Enums"]["task_status"]
           task_type: string | null
@@ -845,12 +1015,14 @@ export type Database = {
         }
         Insert: {
           assigned_agent_id?: string | null
+          conversation_id?: string | null
           constraints?: Json | null
           context_packet?: Json | null
           created_at?: string
           goal?: string | null
           id?: string
           idempotency_key?: string | null
+          owner_user_id?: string | null
           result?: Json | null
           status?: Database["public"]["Enums"]["task_status"]
           task_type?: string | null
@@ -859,19 +1031,29 @@ export type Database = {
         }
         Update: {
           assigned_agent_id?: string | null
+          conversation_id?: string | null
           constraints?: Json | null
           context_packet?: Json | null
           created_at?: string
           goal?: string | null
           id?: string
           idempotency_key?: string | null
+          owner_user_id?: string | null
           result?: Json | null
           status?: Database["public"]["Enums"]["task_status"]
           task_type?: string | null
           title?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "tasks_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       verification_runs: {
         Row: {

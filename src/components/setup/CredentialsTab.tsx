@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { ShieldCheck, Plus, Trash2, Loader2, CheckCircle, XCircle, FlaskConical } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { callEdgeJson } from "@/lib/edge-functions";
 import { useToast } from "@/hooks/use-toast";
 
 type Cred = {
@@ -15,6 +16,7 @@ type Cred = {
 
 const PROVIDERS = [
   { value: "openai", label: "OpenAI" },
+  { value: "openrouter", label: "OpenRouter" },
   { value: "anthropic", label: "Anthropic" },
   { value: "google", label: "Google / Gemini" },
   { value: "mistral", label: "Mistral" },
@@ -26,8 +28,6 @@ const PROVIDERS = [
   { value: "fireworks", label: "Fireworks AI" },
   { value: "custom", label: "Custom / Other" },
 ];
-
-const FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-credentials`;
 
 function maskKey(key: string): string {
   if (key.length <= 8) return "••••••••";
@@ -54,15 +54,7 @@ export function CredentialsTab() {
   useEffect(() => { fetchCreds(); }, []);
 
   const callManageCredentials = async (body: Record<string, unknown>) => {
-    const resp = await fetch(FUNCTIONS_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-      },
-      body: JSON.stringify(body),
-    });
-    return resp.json();
+    return callEdgeJson<Record<string, any>>("manage-credentials", body);
   };
 
   const addCredWithKey = async () => {
@@ -102,42 +94,54 @@ export function CredentialsTab() {
   };
 
   const deleteCred = async (id: string) => {
-    await callManageCredentials({ action: "unset", credential_meta_id: id });
-    await supabase.from("credentials_meta").delete().eq("id", id);
-    fetchCreds();
+    try {
+      await callManageCredentials({ action: "unset", credential_meta_id: id });
+      await supabase.from("credentials_meta").delete().eq("id", id);
+      fetchCreds();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
   };
 
   const updateKey = async (credId: string) => {
     if (!updateValue.trim()) return;
     setSaving(true);
-    const masked = maskKey(updateValue.trim());
-    const result = await callManageCredentials({
-      action: "set",
-      credential_meta_id: credId,
-      value: updateValue.trim(),
-    });
-    if (result.success) {
-      await supabase.from("credentials_meta").update({ masked_value: masked }).eq("id", credId);
-      toast({ title: "Updated", description: "API key updated securely." });
-      setUpdatingId(null);
-      setUpdateValue("");
-      fetchCreds();
-    } else {
-      toast({ title: "Error", description: result.error || "Failed to save", variant: "destructive" });
+    try {
+      const masked = maskKey(updateValue.trim());
+      const result = await callManageCredentials({
+        action: "set",
+        credential_meta_id: credId,
+        value: updateValue.trim(),
+      });
+      if (result.success) {
+        await supabase.from("credentials_meta").update({ masked_value: masked }).eq("id", credId);
+        toast({ title: "Updated", description: "API key updated securely." });
+        setUpdatingId(null);
+        setUpdateValue("");
+        fetchCreds();
+      } else {
+        toast({ title: "Error", description: result.error || "Failed to save", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
     }
     setSaving(false);
   };
 
   const testCred = async (credId: string) => {
     setTesting(credId);
-    const result = await callManageCredentials({ action: "test", credential_meta_id: credId });
-    setTesting(null);
-    if (result.success) {
-      toast({ title: "✓ Valid", description: "Credential verified successfully." });
-      fetchCreds();
-    } else {
-      toast({ title: "✗ Invalid", description: result.error || "Verification failed", variant: "destructive" });
+    try {
+      const result = await callManageCredentials({ action: "test", credential_meta_id: credId });
+      if (result.success) {
+        toast({ title: "✓ Valid", description: "Credential verified successfully." });
+        fetchCreds();
+      } else {
+        toast({ title: "✗ Invalid", description: result.error || "Verification failed", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "✗ Invalid", description: e.message, variant: "destructive" });
     }
+    setTesting(null);
   };
 
   const inputCls = "rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50";

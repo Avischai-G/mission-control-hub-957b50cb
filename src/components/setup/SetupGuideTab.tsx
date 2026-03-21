@@ -1,10 +1,10 @@
-import { ExternalLink, Key, Database, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react";
+import { ExternalLink, Key, Database, CheckCircle2, ChevronDown, ChevronRight, Cpu, Brain, Sparkles, Zap, Waves, Wind, Search, Route } from "lucide-react";
 import { useState } from "react";
 
 type Step = { title: string; content: React.ReactNode };
 type ProviderGuide = {
   name: string;
-  icon: string;
+  icon: React.ReactNode;
   steps: Step[];
   modelIds: string[];
 };
@@ -12,7 +12,7 @@ type ProviderGuide = {
 const GUIDES: ProviderGuide[] = [
   {
     name: "OpenAI",
-    icon: "🟢",
+    icon: <Cpu className="h-5 w-5" style={{ color: "hsl(var(--success))" }} />,
     steps: [
       {
         title: "Create an OpenAI account",
@@ -59,11 +59,62 @@ const GUIDES: ProviderGuide[] = [
         ),
       },
     ],
-    modelIds: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo", "o1-preview", "o1-mini"],
+    modelIds: ["gpt-5.4", "gpt-5.2", "gpt-5-mini", "o1-pro", "o3", "gpt-4o"],
+  },
+  {
+    name: "OpenRouter",
+    icon: <Route className="h-5 w-5" style={{ color: "hsl(196 78% 44%)" }} />,
+    steps: [
+      {
+        title: "Create or open your OpenRouter account",
+        content: (
+          <p className="text-sm text-muted-foreground">
+            Go to{" "}
+            <a href="https://openrouter.ai/" target="_blank" rel="noopener noreferrer" className="text-primary underline inline-flex items-center gap-1">
+              openrouter.ai <ExternalLink className="h-3 w-3" />
+            </a>{" "}
+            and sign in.
+          </p>
+        ),
+      },
+      {
+        title: "Generate an OpenRouter API key",
+        content: (
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>
+              Navigate to{" "}
+              <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer" className="text-primary underline inline-flex items-center gap-1">
+                API Keys <ExternalLink className="h-3 w-3" />
+              </a>
+            </p>
+            <p>Click <span className="font-medium text-foreground">"Create Key"</span> and copy the token (starts with <code className="bg-secondary px-1 rounded text-xs">sk-or-v1-...</code>).</p>
+          </div>
+        ),
+      },
+      {
+        title: "Add credential in Credentials tab",
+        content: (
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>Go to <span className="font-medium text-foreground">Credentials</span> → <span className="font-medium text-foreground">Add Credential</span>.</p>
+            <p>Select provider <span className="font-medium text-foreground">OpenRouter</span>, name it, and paste the key.</p>
+          </div>
+        ),
+      },
+      {
+        title: "Register an OpenRouter model",
+        content: (
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>Go to <span className="font-medium text-foreground">Models</span> → <span className="font-medium text-foreground">Add Model</span>.</p>
+            <p>Use the OpenRouter credential and enter either a free-model ID like <code className="bg-secondary px-1 rounded text-xs">openai/gpt-oss-120b:free</code> or a Grok research ID like <code className="bg-secondary px-1 rounded text-xs">x-ai/grok-4.1-fast:online</code>.</p>
+          </div>
+        ),
+      },
+    ],
+    modelIds: ["x-ai/grok-4.1-fast:online", "x-ai/grok-4.20-beta:online", "x-ai/grok-code-fast-1", "openai/gpt-oss-120b:free", "qwen/qwen3-coder:free"],
   },
   {
     name: "Anthropic (Claude)",
-    icon: "🟠",
+    icon: <Brain className="h-5 w-5" style={{ color: "hsl(var(--accent))" }} />,
     steps: [
       {
         title: "Create an Anthropic account",
@@ -114,7 +165,7 @@ const GUIDES: ProviderGuide[] = [
   },
   {
     name: "Google (Gemini)",
-    icon: "🔵",
+    icon: <Sparkles className="h-5 w-5" style={{ color: "hsl(var(--info))" }} />,
     steps: [
       {
         title: "Get a Google AI API key",
@@ -152,7 +203,7 @@ const GUIDES: ProviderGuide[] = [
   },
   {
     name: "Groq",
-    icon: "⚡",
+    icon: <Zap className="h-5 w-5" style={{ color: "hsl(var(--warning))" }} />,
     steps: [
       {
         title: "Create a Groq account",
@@ -187,7 +238,7 @@ const GUIDES: ProviderGuide[] = [
   },
   {
     name: "DeepSeek",
-    icon: "🌊",
+    icon: <Waves className="h-5 w-5" style={{ color: "hsl(185 72% 48%)" }} />,
     steps: [
       {
         title: "Create a DeepSeek account",
@@ -213,7 +264,7 @@ const GUIDES: ProviderGuide[] = [
   },
   {
     name: "Mistral",
-    icon: "🟣",
+    icon: <Wind className="h-5 w-5" style={{ color: "hsl(280 60% 55%)" }} />,
     steps: [
       {
         title: "Create a Mistral account",
@@ -248,7 +299,9 @@ function ProviderSection({ guide }: { guide: ProviderGuide }) {
         onClick={() => setOpen(!open)}
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-secondary/40 transition-colors"
       >
-        <span className="text-lg">{guide.icon}</span>
+        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-secondary/30 border border-border/50">
+          {guide.icon}
+        </div>
         <span className="font-medium text-sm text-foreground flex-1">{guide.name}</span>
         {open ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
       </button>

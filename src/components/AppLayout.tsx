@@ -1,5 +1,6 @@
-import { SidebarProvider, SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { SidebarExplorerProvider, useSidebarExplorer } from "@/components/explorer/SidebarExplorer";
 import { useState } from "react";
 import { SetupModal } from "@/components/SetupModal";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -9,8 +10,7 @@ interface AppLayoutProps {
 }
 
 function MainArea({ children }: { children: React.ReactNode }) {
-  const { state, setOpen } = useSidebar();
-  const isExpanded = state === "expanded";
+  const { explorer, setIsOpen } = useSidebarExplorer();
 
   return (
     <div className="flex-1 flex flex-col min-w-0 h-screen">
@@ -26,7 +26,10 @@ function MainArea({ children }: { children: React.ReactNode }) {
       </header>
       <main
         className="flex-1 overflow-auto"
-        onClick={() => { if (isExpanded) setOpen(false); }}
+        onClick={() => {
+          explorer?.onCollapse?.();
+          setIsOpen(false);
+        }}
       >
         {children}
       </main>
@@ -39,11 +42,13 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full">
-        <AppSidebar onOpenSetup={() => setSetupOpen(true)} />
-        <MainArea>{children}</MainArea>
-      </div>
-      <SetupModal open={setupOpen} onOpenChange={setSetupOpen} />
+      <SidebarExplorerProvider>
+        <div className="min-h-screen flex w-full">
+          <AppSidebar onOpenSetup={() => setSetupOpen(true)} />
+          <MainArea>{children}</MainArea>
+        </div>
+        <SetupModal open={setupOpen} onOpenChange={setSetupOpen} />
+      </SidebarExplorerProvider>
     </SidebarProvider>
   );
 }
